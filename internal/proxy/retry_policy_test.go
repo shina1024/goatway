@@ -118,7 +118,39 @@ func TestHandler_ForwardWithRetry_returns_gateway_timeout_when_timeout_retries_a
 	require.Error(t, err)
 	require.Equal(t, ErrClassTimeout, result.ErrClass)
 	require.Equal(t, http.StatusGatewayTimeout, recorder.Code)
+	require.Equal(t, http.StatusGatewayTimeout, result.StatusCode)
 	require.Equal(t, 2, calls)
+}
+
+func TestHandler_ForwardWithRetry_returns_bad_gateway_when_transport_error_is_not_timeout(t *testing.T) {
+	// Given
+	backend := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+		writer.WriteHeader(http.StatusOK)
+	}))
+	backendURL := backend.URL
+	backend.Close()
+	registry := newRetryRegistry(t, map[config.TargetGroupID]config.TargetGroupConfig{
+		"api": {
+			Targets:     []config.TargetConfig{retryTarget(t, backendURL, time.Second)},
+			MaxTryCount: 1,
+		},
+	})
+	group, err := registry.Lookup("api")
+	require.NoError(t, err)
+	recorder := httptest.NewRecorder()
+
+	// When
+	result, err := NewHandler(WithRetrySleeper(func(time.Duration) {})).ForwardWithRetry(
+		recorder,
+		httptest.NewRequest(http.MethodGet, "/incoming", nil),
+		retryInput(group, map[string]string{"api": "/rewritten"}),
+	)
+
+	// Then
+	require.Error(t, err)
+	require.Equal(t, ErrClassOther, result.ErrClass)
+	require.Equal(t, http.StatusBadGateway, recorder.Code)
+	require.Equal(t, http.StatusBadGateway, result.StatusCode)
 }
 
 func TestHandler_ForwardWithRetry_limits_attempts_to_max_try_count(t *testing.T) {

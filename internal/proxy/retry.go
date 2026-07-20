@@ -96,7 +96,12 @@ func (handler *Handler) ForwardWithRetry(writer http.ResponseWriter, request *ht
 			continue
 		}
 		if attemptErr != nil {
-			http.Error(writer, http.StatusText(http.StatusGatewayTimeout), http.StatusGatewayTimeout)
+			status := http.StatusBadGateway
+			if result.ErrClass == ErrClassTimeout {
+				status = http.StatusGatewayTimeout
+			}
+			http.Error(writer, http.StatusText(status), status)
+			result.StatusCode = status
 			return result, attemptErr
 		}
 		if err := response.writeTo(writer); err != nil {

@@ -91,6 +91,43 @@ func TestHandler_forwards_rewritten_request_when_route_is_allowed(t *testing.T) 
 	require.Equal(t, http.StatusCreated, recorder.Code)
 }
 
+type statusRecorder struct {
+	header   http.Header
+	statuses []int
+}
+
+func (recorder *statusRecorder) Header() http.Header { return recorder.header }
+
+func (recorder *statusRecorder) WriteHeader(status int) {
+	recorder.statuses = append(recorder.statuses, status)
+}
+
+func (recorder *statusRecorder) Write(body []byte) (int, error) { return len(body), nil }
+
+func TestHandler_writes_single_response_when_upstream_times_out(t *testing.T) {
+	// Given
+	upstream := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, request *http.Request) {
+		<-request.Context().Done()
+	}))
+	defer upstream.Close()
+	host, port := targetAddress(t, upstream.URL)
+	cfg := testConfig(t, host, port)
+	groupConfig := cfg.TargetGroups["catalog"]
+	target := groupConfig.Targets[0]
+	target.ReadTimeout = 50
+	groupConfig.Targets[0] = target
+	cfg.TargetGroups["catalog"] = groupConfig
+	handler := newTestHandler(t, cfg, "public: 1\n")
+
+	// When
+	writer := &statusRecorder{header: make(http.Header)}
+	handler.ServeHTTP(writer, gatewayRequest())
+
+	// Then
+	require.Len(t, writer.statuses, 1)
+	require.Equal(t, http.StatusGatewayTimeout, writer.statuses[0])
+}
+
 func newTestHandler(t *testing.T, cfg *config.Config, limits string) *Handler {
 	t.Helper()
 	registry, err := targetgroup.NewRegistry(cfg.TargetGroups)
