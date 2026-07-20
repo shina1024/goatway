@@ -92,7 +92,11 @@ func (handler *Handler) ForwardWithRetry(writer http.ResponseWriter, request *ht
 		traceID = result.TraceID
 		if retryable(planned.group, result, attemptErr) && index+1 < len(attempts) {
 			next := attempts[index+1]
-			handler.retrySleeper(fullJitter(retryBackoffCap(next.group.RetryBaseInterval(), next.group.RetryMaxInterval(), index+1)))
+			delay := fullJitter(retryBackoffCap(next.group.RetryBaseInterval(), next.group.RetryMaxInterval(), index+1))
+			if waitErr := handler.retryWaiter(request.Context(), delay); waitErr != nil {
+				result.StatusCode = clientClosedStatus
+				return handler.failed(request.Context(), result, "wait before retry", waitErr)
+			}
 			continue
 		}
 		if attemptErr != nil {

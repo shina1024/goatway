@@ -24,11 +24,13 @@ import (
 func TestHandler_Forward_forwards_rewritten_request_and_copies_response(t *testing.T) {
 	// Given
 	var gotPath, gotQuery, gotHeader, gotTrace, gotBody string
+	gotToken := make(chan string, 1)
 	backend := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		body, err := io.ReadAll(request.Body)
 		require.NoError(t, err)
 		gotPath, gotQuery = request.URL.Path, request.URL.RawQuery
 		gotHeader, gotTrace, gotBody = request.Header.Get("X-Client-Header"), request.Header.Get(traceHeader), string(body)
+		gotToken <- request.Header.Get("X-Goatway-API-Token")
 		require.Empty(t, request.Header.Get("X-Hop"))
 		writer.Header().Set("X-Upstream-Header", "copied")
 		writer.Header().Set("Connection", "X-Upstream-Hop")
@@ -41,6 +43,7 @@ func TestHandler_Forward_forwards_rewritten_request_and_copies_response(t *testi
 	group, target := testTarget(t, backend.URL, 100*time.Millisecond)
 	request := httptest.NewRequest(http.MethodPost, "/incoming?keep=this", strings.NewReader("request body"))
 	request.Header.Set("X-Client-Header", "forwarded")
+	request.Header.Set("X-Goatway-API-Token", "secret-token")
 	request.Header.Set("Connection", "X-Hop")
 	request.Header.Set("X-Hop", "removed")
 	recorder := httptest.NewRecorder()
@@ -63,6 +66,7 @@ func TestHandler_Forward_forwards_rewritten_request_and_copies_response(t *testi
 	require.Equal(t, "forwarded", gotHeader)
 	require.Equal(t, result.TraceID, gotTrace)
 	require.Equal(t, "request body", gotBody)
+	require.Empty(t, <-gotToken)
 	require.Equal(t, http.StatusBadGateway, recorder.Code)
 	require.Equal(t, "copied", recorder.Header().Get("X-Upstream-Header"))
 	require.Empty(t, recorder.Header().Get("Connection"))

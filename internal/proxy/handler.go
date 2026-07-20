@@ -21,7 +21,11 @@ import (
 	"goatway/internal/targetgroup"
 )
 
-const traceHeader = "X-Goatway-Trace-ID"
+const (
+	traceHeader        = "X-Goatway-Trace-ID"
+	apiTokenHeader     = "X-Goatway-API-Token"
+	clientClosedStatus = 460
+)
 
 var (
 	ErrNilTargetGroup   = errors.New("proxy: nil target group")
@@ -74,29 +78,54 @@ func WithLogger(logger *slog.Logger) Option {
 func WithRetrySleeper(sleeper func(time.Duration)) Option {
 	return func(handler *Handler) {
 		if sleeper != nil {
-			handler.retrySleeper = sleeper
+			handler.retryWaiter = func(_ context.Context, delay time.Duration) error {
+				sleeper(delay)
+				return nil
+			}
+		}
+	}
+}
+
+func withRetryWaiter(waiter func(context.Context, time.Duration) error) Option {
+	return func(handler *Handler) {
+		if waiter != nil {
+			handler.retryWaiter = waiter
 		}
 	}
 }
 
 // Handler owns reusable HTTP clients and performs one forwarding attempt at a time.
 type Handler struct {
-	clients      clientCache
-	logger       *slog.Logger
-	retrySleeper func(time.Duration)
+	clients     clientCache
+	logger      *slog.Logger
+	retryWaiter func(context.Context, time.Duration) error
 }
 
 // NewHandler creates a single-attempt forwarder using slog.Default unless overridden.
 func NewHandler(options ...Option) *Handler {
 	handler := &Handler{
-		clients:      clientCache{clients: make(map[clientKey]*http.Client)},
-		logger:       slog.Default(),
-		retrySleeper: time.Sleep,
+		clients:     clientCache{clients: make(map[clientKey]*http.Client)},
+		logger:      slog.Default(),
+		retryWaiter: waitForRetry,
 	}
 	for _, option := range options {
 		option(handler)
 	}
 	return handler
+}
+
+func waitForRetry(ctx context.Context, delay time.Duration) error {
+	if delay <= 0 {
+		return ctx.Err()
+	}
+	timer := time.NewTimer(delay)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-timer.C:
+		return nil
+	}
 }
 
 // ClientFor returns the shared client for a target's effective transport configuration.
@@ -179,7 +208,7 @@ func ClassifyError(err error) ErrClass {
 func (handler *Handler) failed(ctx context.Context, result AttemptResult, operation string, err error) (AttemptResult, error) {
 	result.ErrClass = ClassifyError(err)
 	if errors.Is(ctx.Err(), context.Canceled) {
-		handler.logger.WarnContext(ctx, "proxy client disconnected", slog.Int("status", 460), slog.String("trace_id", result.TraceID), slog.Any("err", err))
+		handler.logger.WarnContext(ctx, "proxy client disconnected", slog.Int("status", clientClosedStatus), slog.String("trace_id", result.TraceID), slog.Any("err", err))
 	}
 	return result, fmt.Errorf("%s: %w", operation, err)
 }
@@ -200,6 +229,7 @@ func copyEndToEndHeaders(destination, source http.Header) {
 
 func endToEndHeaders(headers http.Header) http.Header {
 	result := headers.Clone()
+	result.Del(apiTokenHeader)
 	connectionValues := result.Values("Connection")
 	for _, name := range []string{"Connection", "Keep-Alive", "Proxy-Authenticate", "Proxy-Authorization", "Proxy-Connection", "Te", "Trailer", "Transfer-Encoding", "Upgrade"} {
 		result.Del(name)
