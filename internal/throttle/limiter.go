@@ -1,0 +1,117 @@
+package throttle
+
+import (
+	"fmt"
+	"os"
+	"sync"
+
+	"gopkg.in/yaml.v3"
+)
+
+var (
+	maxConcurrentMu  sync.RWMutex
+	maxConcurrentMap = map[string]int{}
+)
+
+// Limiter tracks concurrent transfers by client type.
+type Limiter struct {
+	mu          sync.Mutex
+	clientCount map[string]int
+}
+
+// NewLimiter loads the static per-client maximums once from path.
+func NewLimiter(path string) (*Limiter, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, fmt.Errorf("read max concurrent requests file %q: %w", path, err)
+	}
+
+	limits := make(map[string]int)
+	if err := yaml.Unmarshal(data, &limits); err != nil {
+		return nil, fmt.Errorf("parse max concurrent requests file %q: %w", path, err)
+	}
+
+	maxConcurrentMu.Lock()
+	maxConcurrentMap = limits
+	maxConcurrentMu.Unlock()
+
+	return &Limiter{clientCount: make(map[string]int)}, nil
+}
+
+// Inc records a transfer start and returns the new active count for client.
+func (l *Limiter) Inc(client string) int {
+	if l == nil {
+		return 0
+	}
+
+	l.mu.Lock()
+	l.clientCount[client]++
+	count := l.clientCount[client]
+	l.mu.Unlock()
+	return count
+}
+
+// Dec records a transfer end for client.
+func (l *Limiter) Dec(client string) {
+	if l == nil {
+		return
+	}
+
+	l.mu.Lock()
+	count, exists := l.clientCount[client]
+	if !exists || count <= 1 {
+		delete(l.clientCount, client)
+		l.mu.Unlock()
+		return
+	}
+	l.clientCount[client] = count - 1
+	l.mu.Unlock()
+}
+
+// IsOverLimit applies the article's per-pod concurrency calculation.
+func IsOverLimit(
+	client string,
+	count int,
+	depType string,
+	instanceCounts InstanceCounts,
+	trafficWeight TrafficWeight,
+) bool {
+	maximum, found := maxConcurrent(client)
+	if !found {
+		return false
+	}
+	if depType == "" || instanceCounts.Primary+instanceCounts.Canary == 0 || trafficWeight.Primary+trafficWeight.Canary == 0 {
+		return false
+	}
+
+	if trafficWeight.Canary == 0 {
+		if instanceCounts.Primary == 0 {
+			return false
+		}
+		threshold := maximum / instanceCounts.Primary
+		if threshold == 0 {
+			threshold = 1
+		}
+		return count > threshold
+	}
+
+	weight, instances := trafficWeight.Canary, instanceCounts.Canary
+	if depType == primaryDepType {
+		weight, instances = trafficWeight.Primary, instanceCounts.Primary
+	}
+	if instances == 0 {
+		return false
+	}
+	threshold := maximum * weight / 100 / instances
+	if threshold == 0 {
+		threshold = 1
+	}
+	return count > threshold
+}
+
+func maxConcurrent(client string) (int, bool) {
+	maxConcurrentMu.RLock()
+	defer maxConcurrentMu.RUnlock()
+	maximum, found := maxConcurrentMap[client]
+	return maximum, found
+}
