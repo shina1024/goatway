@@ -1,7 +1,7 @@
 # goatway
 
-A Go reverse-proxy gateway that reproduces the three-part ZOZO Tech Blog series **"Building an API Gateway from Scratch"**.
-This repository lets you run and verify every feature discussed in the articles with actual code.
+An educational Go reverse-proxy gateway that reproduces the implementation ideas from three ZOZO Tech Blog articles.
+It is designed for local study and verification, not production deployment.
 
 ## Overview
 
@@ -17,7 +17,7 @@ goatway is a lightweight gateway that handles:
 - Trace ID generation and propagation
 - Client-disconnect detection (460)
 - Development request-time override
-- Throttling (per-pod concurrent connection limits)
+- Per-client concurrent-request throttling with primary/canary pod-aware thresholds
 
 ## Article Mapping
 
@@ -44,29 +44,28 @@ goatway is a lightweight gateway that handles:
 
 ## Getting Started
 
-### 1. Start a backend (optional)
+### 1. Start the example backends
 
-To test locally you need an upstream backend. Here is a minimal Go mock:
+The shipped configuration references ports `18081`, `18082`, and `18083`. Start all three for repeatable routing and retry demonstrations:
 
 ```powershell
 # PowerShell
 @"
 package main
-import ("fmt"; "net/http"; "time")
+import ("fmt"; "net/http")
 func main() {
-    http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-        fmt.Fprintf(w, "hello from %s\n", r.URL.Path)
-    })
-    http.ListenAndServe(":18081", nil)
+    handler := func(port string) http.HandlerFunc {
+        return func(w http.ResponseWriter, r *http.Request) {
+            w.Header().Set("X-Goatway-Trace-ID", r.Header.Get("X-Goatway-Trace-ID"))
+            fmt.Fprintf(w, "hello from %s path=%s\n", port, r.URL.Path)
+        }
+    }
+    go http.ListenAndServe(":18081", handler("18081"))
+    go http.ListenAndServe(":18082", handler("18082"))
+    http.ListenAndServe(":18083", handler("18083"))
 }
 "@ | Set-Content -Path "$env:TEMP\mock.go" -Encoding UTF8
 go run "$env:TEMP\mock.go"
-```
-
-Or with Python:
-
-```powershell
-python -m http.server 18081
 ```
 
 ### 2. Run goatway
@@ -120,11 +119,11 @@ curl -i http://127.0.0.1:8080/notfound -H "X-Goatway-API-Token: abcde12345"
 curl -i http://127.0.0.1:8080/sample/hello -H "X-Goatway-API-Token: abcde12345" -H "X-Goatway-Trace-ID: my-trace-123"
 ```
 
-The response includes the `X-Goatway-Trace-ID` header, and the gateway logs carry the same ID.
+The gateway always adds `X-Goatway-Trace-ID` to the upstream request. A response contains that header only when the backend echoes it, as the example backend does. Gateway logs also carry the propagated ID.
 
 ### 429 (throttling) demo
 
-Lower the value in `config/max_concurrent_requests.yml` and fire multiple concurrent requests:
+Lower the value in `config/max_concurrent_requests.yml` and fire overlapping requests against a deliberately slow backend. Fast responses may complete before concurrency overlaps, so the deterministic version of this scenario lives in `internal/e2e/throttle_test.go`.
 
 ```powershell
 # Example: set SampleClient: 1, then fire 2 requests at once
@@ -218,8 +217,12 @@ The following are mentioned in the articles but omitted or replaced in this repo
 
 - **Member authentication**: Mentioned in the articles but not implemented in this codebase
 - **AWS Secrets Manager / Athena / Datadog / Sentry / PagerDuty / EKS**: Operational infrastructure integrations
+- **TLS termination and production hardening**: The example server is plain HTTP and is not a production edge gateway
+- **Trusted proxy support**: IP restrictions use `RemoteAddr` directly. `Forwarded` and `X-Forwarded-For` are intentionally ignored, so deploy behind a proxy only after adding an explicit trusted-proxy model
+- **Real Kubernetes / Istio clients**: Deployment state is read from a local YAML file instead
 - **Prism / nginx mocks**: Mock tools used in the articles. Replaced here with `httptest` and local files
-- **Full in-memory request body buffering**: The current implementation buffers the entire request body in memory before forwarding upstream. This is a simplicity trade-off
+- **Streaming and body limits**: Requests and upstream responses are fully buffered in memory. Add explicit size limits or streaming before production use
+- **Production-grade secrets and authentication**: The example token is public test data. Real deployments need managed secrets, TLS, stronger authentication, and token rotation
 
 ## Tests & CI
 

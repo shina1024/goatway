@@ -19,8 +19,8 @@ jobs:
       - name: Format check
         run: |
           # gofumpt is the project formatter (stricter than gofmt)
-          go run mvdan.cc/gofumpt@latest -l .
-          test -z "$(go run mvdan.cc/gofumpt@latest -l .)"
+          go run mvdan.cc/gofumpt@v0.10.0 -l .
+          test -z "$(go run mvdan.cc/gofumpt@v0.10.0 -l .)"
 
       - name: Vet
         run: go vet ./...
