@@ -15,6 +15,7 @@ import (
 	"net/url"
 	"os"
 	"strings"
+	"time"
 
 	"goatway/internal/router"
 	"goatway/internal/targetgroup"
@@ -69,15 +70,29 @@ func WithLogger(logger *slog.Logger) Option {
 	}
 }
 
+// WithRetrySleeper replaces the delay function used between retry attempts.
+func WithRetrySleeper(sleeper func(time.Duration)) Option {
+	return func(handler *Handler) {
+		if sleeper != nil {
+			handler.retrySleeper = sleeper
+		}
+	}
+}
+
 // Handler owns reusable HTTP clients and performs one forwarding attempt at a time.
 type Handler struct {
-	clients clientCache
-	logger  *slog.Logger
+	clients      clientCache
+	logger       *slog.Logger
+	retrySleeper func(time.Duration)
 }
 
 // NewHandler creates a single-attempt forwarder using slog.Default unless overridden.
 func NewHandler(options ...Option) *Handler {
-	handler := &Handler{clients: clientCache{clients: make(map[clientKey]*http.Client)}, logger: slog.Default()}
+	handler := &Handler{
+		clients:      clientCache{clients: make(map[clientKey]*http.Client)},
+		logger:       slog.Default(),
+		retrySleeper: time.Sleep,
+	}
 	for _, option := range options {
 		option(handler)
 	}
