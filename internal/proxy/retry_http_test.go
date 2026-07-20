@@ -3,6 +3,7 @@ package proxy
 import (
 	"net/http"
 	"net/http/httptest"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -13,14 +14,16 @@ import (
 
 func TestHandler_ForwardWithRetry_returns_success_from_next_target_when_server_error(t *testing.T) {
 	// Given
-	var firstPath, secondPath string
+	var firstPath, secondPath atomic.Pointer[string]
 	first := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
-		firstPath = request.URL.Path
+		path := request.URL.Path
+		firstPath.Store(&path)
 		writer.WriteHeader(http.StatusInternalServerError)
 	}))
 	defer first.Close()
 	second := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
-		secondPath = request.URL.Path
+		path := request.URL.Path
+		secondPath.Store(&path)
 		writer.WriteHeader(http.StatusOK)
 	}))
 	defer second.Close()
@@ -47,20 +50,20 @@ func TestHandler_ForwardWithRetry_returns_success_from_next_target_when_server_e
 	require.NoError(t, err)
 	require.Equal(t, http.StatusOK, result.StatusCode)
 	require.Equal(t, http.StatusOK, recorder.Code)
-	require.Equal(t, "/rewritten", firstPath)
-	require.Equal(t, "/rewritten", secondPath)
+	require.Equal(t, "/rewritten", *firstPath.Load())
+	require.Equal(t, "/rewritten", *secondPath.Load())
 }
 
 func TestHandler_ForwardWithRetry_returns_first_server_error_when_post_retries_are_disabled(t *testing.T) {
 	// Given
-	firstCalls, secondCalls := 0, 0
+	var firstCalls, secondCalls atomic.Int64
 	first := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
-		firstCalls++
+		firstCalls.Add(1)
 		writer.WriteHeader(http.StatusInternalServerError)
 	}))
 	defer first.Close()
 	second := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
-		secondCalls++
+		secondCalls.Add(1)
 		writer.WriteHeader(http.StatusOK)
 	}))
 	defer second.Close()
@@ -87,20 +90,20 @@ func TestHandler_ForwardWithRetry_returns_first_server_error_when_post_retries_a
 	require.NoError(t, err)
 	require.Equal(t, http.StatusInternalServerError, result.StatusCode)
 	require.Equal(t, http.StatusInternalServerError, recorder.Code)
-	require.Equal(t, 1, firstCalls)
-	require.Zero(t, secondCalls)
+	require.Equal(t, int64(1), firstCalls.Load())
+	require.Zero(t, secondCalls.Load())
 }
 
 func TestHandler_ForwardWithRetry_does_not_retry_timeout_when_only_server_errors_are_enabled(t *testing.T) {
 	// Given
-	firstCalls, secondCalls := 0, 0
+	var firstCalls, secondCalls atomic.Int64
 	slow := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, request *http.Request) {
-		firstCalls++
+		firstCalls.Add(1)
 		<-request.Context().Done()
 	}))
 	defer slow.Close()
 	healthy := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
-		secondCalls++
+		secondCalls.Add(1)
 		writer.WriteHeader(http.StatusOK)
 	}))
 	defer healthy.Close()
@@ -126,20 +129,20 @@ func TestHandler_ForwardWithRetry_does_not_retry_timeout_when_only_server_errors
 	require.Error(t, err)
 	require.Equal(t, ErrClassTimeout, result.ErrClass)
 	require.Equal(t, http.StatusGatewayTimeout, recorder.Code)
-	require.Equal(t, 1, firstCalls)
-	require.Zero(t, secondCalls)
+	require.Equal(t, int64(1), firstCalls.Load())
+	require.Zero(t, secondCalls.Load())
 }
 
 func TestHandler_ForwardWithRetry_retries_timeout_against_healthy_target(t *testing.T) {
 	// Given
-	firstCalls, secondCalls := 0, 0
+	var firstCalls, secondCalls atomic.Int64
 	slow := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, request *http.Request) {
-		firstCalls++
+		firstCalls.Add(1)
 		<-request.Context().Done()
 	}))
 	defer slow.Close()
 	healthy := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
-		secondCalls++
+		secondCalls.Add(1)
 		writer.WriteHeader(http.StatusOK)
 	}))
 	defer healthy.Close()
@@ -165,6 +168,6 @@ func TestHandler_ForwardWithRetry_retries_timeout_against_healthy_target(t *test
 	require.NoError(t, err)
 	require.Equal(t, http.StatusOK, result.StatusCode)
 	require.Equal(t, http.StatusOK, recorder.Code)
-	require.Equal(t, 1, firstCalls)
-	require.Equal(t, 1, secondCalls)
+	require.Equal(t, int64(1), firstCalls.Load())
+	require.Equal(t, int64(1), secondCalls.Load())
 }

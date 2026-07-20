@@ -3,6 +3,7 @@ package proxy
 import (
 	"net/http"
 	"net/http/httptest"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -13,14 +14,16 @@ import (
 
 func TestHandler_ForwardWithRetry_uses_retry_group_rewrite_path_after_cross_group_failure(t *testing.T) {
 	// Given
-	var primaryPath, fallbackPath string
+	var primaryPath, fallbackPath atomic.Pointer[string]
 	primary := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
-		primaryPath = request.URL.Path
+		path := request.URL.Path
+		primaryPath.Store(&path)
 		writer.WriteHeader(http.StatusInternalServerError)
 	}))
 	defer primary.Close()
 	fallback := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
-		fallbackPath = request.URL.Path
+		path := request.URL.Path
+		fallbackPath.Store(&path)
 		writer.WriteHeader(http.StatusOK)
 	}))
 	defer fallback.Close()
@@ -48,15 +51,15 @@ func TestHandler_ForwardWithRetry_uses_retry_group_rewrite_path_after_cross_grou
 	require.NoError(t, err)
 	require.Equal(t, http.StatusOK, result.StatusCode)
 	require.Equal(t, http.StatusOK, recorder.Code)
-	require.Equal(t, "/primary-path", primaryPath)
-	require.Equal(t, "/fallback-path", fallbackPath)
+	require.Equal(t, "/primary-path", *primaryPath.Load())
+	require.Equal(t, "/fallback-path", *fallbackPath.Load())
 }
 
 func TestHandler_ForwardWithRetry_returns_last_server_error_when_retries_are_exhausted(t *testing.T) {
 	// Given
-	calls := 0
+	var calls atomic.Int64
 	backend := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
-		calls++
+		calls.Add(1)
 		writer.WriteHeader(http.StatusBadGateway)
 		_, err := writer.Write([]byte("last failure"))
 		require.NoError(t, err)
@@ -85,14 +88,14 @@ func TestHandler_ForwardWithRetry_returns_last_server_error_when_retries_are_exh
 	require.Equal(t, http.StatusBadGateway, result.StatusCode)
 	require.Equal(t, http.StatusBadGateway, recorder.Code)
 	require.Equal(t, "last failure", recorder.Body.String())
-	require.Equal(t, 2, calls)
+	require.Equal(t, int64(2), calls.Load())
 }
 
 func TestHandler_ForwardWithRetry_returns_gateway_timeout_when_timeout_retries_are_exhausted(t *testing.T) {
 	// Given
-	calls := 0
+	var calls atomic.Int64
 	slow := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, request *http.Request) {
-		calls++
+		calls.Add(1)
 		<-request.Context().Done()
 	}))
 	defer slow.Close()
@@ -119,7 +122,7 @@ func TestHandler_ForwardWithRetry_returns_gateway_timeout_when_timeout_retries_a
 	require.Equal(t, ErrClassTimeout, result.ErrClass)
 	require.Equal(t, http.StatusGatewayTimeout, recorder.Code)
 	require.Equal(t, http.StatusGatewayTimeout, result.StatusCode)
-	require.Equal(t, 2, calls)
+	require.Equal(t, int64(2), calls.Load())
 }
 
 func TestHandler_ForwardWithRetry_returns_bad_gateway_when_transport_error_is_not_timeout(t *testing.T) {
@@ -155,9 +158,9 @@ func TestHandler_ForwardWithRetry_returns_bad_gateway_when_transport_error_is_no
 
 func TestHandler_ForwardWithRetry_limits_attempts_to_max_try_count(t *testing.T) {
 	// Given
-	calls := 0
+	var calls atomic.Int64
 	backend := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
-		calls++
+		calls.Add(1)
 		writer.WriteHeader(http.StatusInternalServerError)
 	}))
 	defer backend.Close()
@@ -182,5 +185,5 @@ func TestHandler_ForwardWithRetry_limits_attempts_to_max_try_count(t *testing.T)
 	// Then
 	require.NoError(t, err)
 	require.Equal(t, http.StatusInternalServerError, recorder.Code)
-	require.Equal(t, 3, calls)
+	require.Equal(t, int64(3), calls.Load())
 }
