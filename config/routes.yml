@@ -11,7 +11,7 @@
       - target_group: TargetGroupB
         path: '/$1'
 
-# Canary example:
+# Canary example (replace the active route above to try this split):
 # - from:
 #     path: '^/sample/(.+)$'
 #     clients:
@@ -22,7 +22,7 @@
 #     destinations:
 #       - target_group: TargetGroupA
 #         path: '/$1'
-#         weight: 100
-#       - target_group: CanaryGroup
+#         weight: 90
+#       - target_group: TargetGroupB
 #         path: '/$1'
 #         weight: 10

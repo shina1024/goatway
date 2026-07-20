@@ -221,6 +221,8 @@ The following are mentioned in the articles but omitted or replaced in this repo
 - **Trusted proxy support**: IP restrictions use `RemoteAddr` directly. `Forwarded` and `X-Forwarded-For` are intentionally ignored, so deploy behind a proxy only after adding an explicit trusted-proxy model
 - **Real Kubernetes / Istio clients**: Deployment state is read from a local YAML file instead
 - **Prism / nginx mocks**: Mock tools used in the articles. Replaced here with `httptest` and local files
+- **Health checks and circuit breakers**: Discussed as future availability work in the article, but not part of this reproduction
+- **Operational alerts and `Retry-After` guidance**: The simplified gateway returns HTTP 429 without alerting integrations or a computed retry window
 - **Streaming and body limits**: Requests and upstream responses are fully buffered in memory. Add explicit size limits or streaming before production use
 - **Production-grade secrets and authentication**: The example token is public test data. Real deployments need managed secrets, TLS, stronger authentication, and token rotation
 
@@ -229,16 +231,19 @@ The following are mentioned in the articles but omitted or replaced in this repo
 ### Local run
 
 ```powershell
-go test ./...
+go run mvdan.cc/gofumpt@v0.10.0 -l .
+go vet ./...
+go build ./...
+go test -shuffle=on -count=1 ./...
 ```
 
 ### Race detection
 
 ```powershell
-go test -race ./...
+go test -race -shuffle=on -count=1 ./...
 ```
 
-On Windows, `-race` requires a GCC-compatible compiler and may not be available locally. It is recommended to run `-race` on CI (Ubuntu).
+On Windows, `-race` requires a GCC-compatible compiler and may not be available locally. GitHub Actions pins Go `1.26.5` and gofumpt `v0.10.0`, then runs formatting, vet, build, and race-enabled tests on Ubuntu.
 
 ## Directory Structure
 
