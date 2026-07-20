@@ -1,0 +1,28 @@
+- from:
+    path: '^/sample/(.+)$'
+    clients:
+      - SampleClient
+    ip_range_groups:
+      - SampleIPRange
+  to:
+    destinations:
+      - target_group: TargetGroupA
+        path: '/$1'
+      - target_group: TargetGroupB
+        path: '/$1'
+
+# Canary example:
+# - from:
+#     path: '^/sample/(.+)$'
+#     clients:
+#       - SampleClient
+#     ip_range_groups:
+#       - SampleIPRange
+#   to:
+#     destinations:
+#       - target_group: TargetGroupA
+#         path: '/$1'
+#         weight: 100
+#       - target_group: CanaryGroup
+#         path: '/$1'
+#         weight: 10

@@ -1,0 +1,4 @@
+primary_pods: 1
+canary_pods: 0
+primary_weight: 100
+canary_weight: 0

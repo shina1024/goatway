@@ -1,0 +1,32 @@
+TargetGroupA:
+  targets:
+    - host: 127.0.0.1
+      port: 18081
+      # weight: 4
+    - host: 127.0.0.1
+      port: 18082
+      # weight: 1
+  max_try_count: 3
+  retry_cases:
+    - server_error
+    - timeout
+  retry_base_interval: 50
+  retry_max_interval: 500
+  retry_to_target_group_id: TargetGroupB
+  connect_timeout: 1000
+  read_timeout: 5000
+  idle_conn_timeout: 90000
+  max_idle_conns_per_host: 10
+
+TargetGroupB:
+  targets:
+    - host: 127.0.0.1
+      port: 18083
+  max_try_count: 2
+  retry_cases:
+    - server_error
+    - timeout
+  retry_base_interval: 50
+  retry_max_interval: 500
+  connect_timeout: 1000
+  read_timeout: 5000
