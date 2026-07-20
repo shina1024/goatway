@@ -25,6 +25,18 @@ func (config Config) Validate() error {
 	if config.Deployment.PrimaryWeight < 0 || config.Deployment.CanaryWeight < 0 {
 		return invalid("deployment.yml", "weights", "negative weight", "")
 	}
+	if config.Deployment.PrimaryPods < 0 || config.Deployment.CanaryPods < 0 {
+		return invalid("deployment.yml", "pods", "negative pod count", "")
+	}
+	totalWeight := config.Deployment.PrimaryWeight + config.Deployment.CanaryWeight
+	if totalWeight != 0 && totalWeight != 100 {
+		return invalid("deployment.yml", "weights", "traffic weights must total 100 or 0", "")
+	}
+	for client, maximum := range config.MaxConcurrentRequests {
+		if maximum < 0 {
+			return invalid("max_concurrent_requests.yml", string(client), "negative max concurrent requests", "")
+		}
+	}
 	return nil
 }
 

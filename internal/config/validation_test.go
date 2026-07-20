@@ -63,6 +63,15 @@ func Test_Config_Load_rejects_invalid_configuration_with_typed_errors(t *testing
 		{"negative deployment weight", func(files map[string]string) {
 			files["deployment.yml"] = strings.Replace(files["deployment.yml"], "primary_weight: 90", "primary_weight: -1", 1)
 		}, "negative weight", false},
+		{"negative deployment pod count", func(files map[string]string) {
+			files["deployment.yml"] = strings.Replace(files["deployment.yml"], "primary_pods: 3", "primary_pods: -1", 1)
+		}, "negative pod count", false},
+		{"invalid deployment traffic weight total", func(files map[string]string) {
+			files["deployment.yml"] = strings.Replace(files["deployment.yml"], "canary_weight: 10", "canary_weight: 20", 1)
+		}, "traffic weights must total 100 or 0", false},
+		{"negative max concurrent requests", func(files map[string]string) {
+			files["max_concurrent_requests.yml"] = strings.Replace(files["max_concurrent_requests.yml"], "public: 100", "public: -1", 1)
+		}, "negative max concurrent requests", false},
 	}
 
 	for _, test := range tests {
