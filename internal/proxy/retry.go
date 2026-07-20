@@ -13,7 +13,7 @@ import (
 
 const (
 	maxRetryIntervalMultiplier = 10
-	maxDuration               = time.Duration(1<<63 - 1)
+	maxDuration                = time.Duration(1<<63 - 1)
 )
 
 // RetryInput identifies the fetched group and route metadata for a retried transfer.

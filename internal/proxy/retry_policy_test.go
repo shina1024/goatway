@@ -26,9 +26,9 @@ func TestHandler_ForwardWithRetry_uses_retry_group_rewrite_path_after_cross_grou
 	defer fallback.Close()
 	registry := newRetryRegistry(t, map[config.TargetGroupID]config.TargetGroupConfig{
 		"primary": {
-			Targets:               []config.TargetConfig{retryTarget(t, primary.URL, time.Second)},
-			MaxTryCount:           2,
-			RetryCases:            []string{"server_error"},
+			Targets:              []config.TargetConfig{retryTarget(t, primary.URL, time.Second)},
+			MaxTryCount:          2,
+			RetryCases:           []string{"server_error"},
 			RetryToTargetGroupID: "fallback",
 		},
 		"fallback": {Targets: []config.TargetConfig{retryTarget(t, fallback.URL, time.Second)}},

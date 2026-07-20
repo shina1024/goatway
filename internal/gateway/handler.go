@@ -91,7 +91,8 @@ func (handler *Handler) ServeHTTP(writer http.ResponseWriter, request *http.Requ
 		handler.writeRouteError(writer, request, traceID, err)
 		return
 	}
-	handler.logger.InfoContext(request.Context(), "gateway route matched",
+	handler.logger.InfoContext(
+		request.Context(), "gateway route matched",
 		slog.String("trace_id", traceID),
 		slog.String("target_group", match.TargetGroupID),
 		slog.String("client", string(match.ClientType)),
@@ -105,7 +106,8 @@ func (handler *Handler) ServeHTTP(writer http.ResponseWriter, request *http.Requ
 		trafficWeight := throttle.GetTrafficWeight()
 		depType := throttle.GetDepType()
 		if throttle.IsOverLimit(client, count, depType, instanceCounts, trafficWeight) {
-			handler.logger.WarnContext(request.Context(), "gateway throttle rejected",
+			handler.logger.WarnContext(
+				request.Context(), "gateway throttle rejected",
 				slog.String("trace_id", traceID),
 				slog.String("client", client),
 				slog.Int("count", count),
@@ -131,7 +133,8 @@ func (handler *Handler) ServeHTTP(writer http.ResponseWriter, request *http.Requ
 	if result.TraceID != "" {
 		traceID = result.TraceID
 	}
-	handler.logger.InfoContext(request.Context(), "gateway upstream attempt result",
+	handler.logger.InfoContext(
+		request.Context(), "gateway upstream attempt result",
 		slog.String("trace_id", traceID),
 		slog.Int("status", result.StatusCode),
 		slog.Int("error_class", int(result.ErrClass)),

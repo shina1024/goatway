@@ -64,7 +64,8 @@ func newGateway(t *testing.T, value fixture) *httptest.Server {
 	require.NoError(t, err)
 	limiter, err := throttle.NewLimiter(filepath.Join(dir, "max_concurrent_requests.yml"))
 	require.NoError(t, err)
-	handler := gateway.NewHandler(cfg, registry, routes, limiter,
+	handler := gateway.NewHandler(
+		cfg, registry, routes, limiter,
 		gateway.WithLogger(slog.New(slog.NewTextHandler(io.Discard, nil))),
 	)
 	server := httptest.NewServer(handler)

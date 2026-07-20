@@ -136,7 +136,8 @@ func newTestHandler(t *testing.T, cfg *config.Config, limits string) *Handler {
 	require.NoError(t, err)
 	limiter, err := throttle.NewLimiter(writeFile(t, "max_concurrent_requests.yml", limits))
 	require.NoError(t, err)
-	return NewHandler(cfg, registry, routes, limiter,
+	return NewHandler(
+		cfg, registry, routes, limiter,
 		WithProxy(proxy.NewHandler()),
 		WithLogger(slog.New(slog.NewTextHandler(io.Discard, nil))),
 	)

@@ -66,9 +66,9 @@ func TestHandler_ForwardWithRetry_returns_first_server_error_when_post_retries_a
 	defer second.Close()
 	registry := newRetryRegistry(t, map[config.TargetGroupID]config.TargetGroupConfig{
 		"api": {
-			Targets:             []config.TargetConfig{retryTarget(t, first.URL, time.Second), retryTarget(t, second.URL, time.Second)},
-			MaxTryCount:         2,
-			RetryCases:          []string{"server_error"},
+			Targets:            []config.TargetConfig{retryTarget(t, first.URL, time.Second), retryTarget(t, second.URL, time.Second)},
+			MaxTryCount:        2,
+			RetryCases:         []string{"server_error"},
 			RetryNonIdempotent: false,
 		},
 	})

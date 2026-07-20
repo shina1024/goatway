@@ -32,11 +32,11 @@ func TestHandler_ForwardWithRetry_sleeps_with_full_jitter_between_attempts(t *te
 	defer backend.Close()
 	registry := newRetryRegistry(t, map[config.TargetGroupID]config.TargetGroupConfig{
 		"api": {
-			Targets:              []config.TargetConfig{retryTarget(t, backend.URL, time.Second)},
-			MaxTryCount:          3,
-			RetryCases:           []string{"server_error"},
-			RetryBaseInterval:    10,
-			RetryMaxInterval:     25,
+			Targets:           []config.TargetConfig{retryTarget(t, backend.URL, time.Second)},
+			MaxTryCount:       3,
+			RetryCases:        []string{"server_error"},
+			RetryBaseInterval: 10,
+			RetryMaxInterval:  25,
 		},
 	})
 	group, err := registry.Lookup("api")
