@@ -19,6 +19,12 @@ type TrafficWeight struct {
 	Canary  int
 }
 
+// DeploymentState is one atomically published view of instance counts and traffic weights.
+type DeploymentState struct {
+	InstanceCounts InstanceCounts
+	TrafficWeight  TrafficWeight
+}
+
 const (
 	primaryDepType = "primary"
 	canaryDepType  = "canary"

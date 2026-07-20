@@ -13,24 +13,26 @@ import (
 const FallbackThreshold = 60
 
 var (
-	stateMu        sync.RWMutex
-	instanceCounts InstanceCounts
-	trafficWeight  TrafficWeight
-	fetchErrCount  int
+	stateMu         sync.RWMutex
+	deploymentState DeploymentState
+	fetchErrCount   int
 )
+
+// GetDeploymentState returns one consistent deployment snapshot.
+func GetDeploymentState() DeploymentState {
+	stateMu.RLock()
+	defer stateMu.RUnlock()
+	return deploymentState
+}
 
 // GetInstanceCounts returns the most recently fetched deployment counts.
 func GetInstanceCounts() InstanceCounts {
-	stateMu.RLock()
-	defer stateMu.RUnlock()
-	return instanceCounts
+	return GetDeploymentState().InstanceCounts
 }
 
 // GetTrafficWeight returns the most recently fetched traffic weights.
 func GetTrafficWeight() TrafficWeight {
-	stateMu.RLock()
-	defer stateMu.RUnlock()
-	return trafficWeight
+	return GetDeploymentState().TrafficWeight
 }
 
 func fetch(ctx context.Context, fetcher Fetcher) error {
@@ -48,10 +50,6 @@ func fetch(ctx context.Context, fetcher Fetcher) error {
 		return err
 	}
 
-	stateMu.Lock()
-	instanceCounts = counts
-	stateMu.Unlock()
-
 	weights, err := fetcher.FetchTrafficWeight(ctx)
 	if err != nil {
 		if isFetchError(err) {
@@ -62,7 +60,7 @@ func fetch(ctx context.Context, fetcher Fetcher) error {
 	}
 
 	stateMu.Lock()
-	trafficWeight = weights
+	deploymentState = DeploymentState{InstanceCounts: counts, TrafficWeight: weights}
 	fetchErrCount = 0
 	stateMu.Unlock()
 	return nil
@@ -78,7 +76,7 @@ func recordFetchError(ctx context.Context, err error) {
 	fetchErrCount++
 	count := fetchErrCount
 	if count > FallbackThreshold {
-		instanceCounts = InstanceCounts{}
+		deploymentState = DeploymentState{}
 	}
 	stateMu.Unlock()
 
@@ -92,6 +90,14 @@ func recordFetchError(ctx context.Context, err error) {
 // Poll fetches throttling state on interval until the context ends or fetching terminates.
 func Poll(ctx context.Context, fetcher Fetcher, interval time.Duration) {
 	if interval <= 0 {
+		return
+	}
+	select {
+	case <-ctx.Done():
+		return
+	default:
+	}
+	if err := fetch(ctx, fetcher); err != nil {
 		return
 	}
 

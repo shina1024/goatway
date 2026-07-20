@@ -102,8 +102,9 @@ func (handler *Handler) ServeHTTP(writer http.ResponseWriter, request *http.Requ
 		client := string(match.ClientType)
 		count := handler.limiter.Inc(client)
 		defer handler.limiter.Dec(client)
-		instanceCounts := throttle.GetInstanceCounts()
-		trafficWeight := throttle.GetTrafficWeight()
+		deploymentState := throttle.GetDeploymentState()
+		instanceCounts := deploymentState.InstanceCounts
+		trafficWeight := deploymentState.TrafficWeight
 		depType := throttle.GetDepType()
 		if throttle.IsOverLimit(client, count, depType, instanceCounts, trafficWeight) {
 			handler.logger.WarnContext(
