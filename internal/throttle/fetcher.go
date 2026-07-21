@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"sync"
 
 	"gopkg.in/yaml.v3"
 )
@@ -17,7 +18,10 @@ type Fetcher interface {
 
 // FileFetcher reads local deployment state instead of Kubernetes and Istio.
 type FileFetcher struct {
-	path string
+	mu                  sync.Mutex
+	path                string
+	cachedDeployment    deploymentFile
+	hasCachedDeployment bool
 }
 
 type deploymentFile struct {
@@ -27,22 +31,49 @@ type deploymentFile struct {
 	CanaryWeight  int `yaml:"canary_weight"`
 }
 
-// NewFileFetcher creates a fetcher that re-reads path for every fetch.
+// NewFileFetcher creates a fetcher that reads path once for each count and weight pair.
 func NewFileFetcher(path string) *FileFetcher {
 	return &FileFetcher{path: path}
 }
 
 // FetchInstanceCounts returns the current primary and canary pod counts.
 func (f *FileFetcher) FetchInstanceCounts(ctx context.Context) (InstanceCounts, error) {
+	if f == nil {
+		return InstanceCounts{}, &fetchError{Err: errors.New("nil file fetcher")}
+	}
+
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.cachedDeployment = deploymentFile{}
+	f.hasCachedDeployment = false
+
 	deployment, err := f.fetchDeployment(ctx)
 	if err != nil {
 		return InstanceCounts{}, err
 	}
+	f.cachedDeployment = deployment
+	f.hasCachedDeployment = true
 	return InstanceCounts{Primary: deployment.PrimaryPods, Canary: deployment.CanaryPods}, nil
 }
 
 // FetchTrafficWeight returns the current primary and canary traffic weights.
 func (f *FileFetcher) FetchTrafficWeight(ctx context.Context) (TrafficWeight, error) {
+	if f == nil {
+		return TrafficWeight{}, &fetchError{Err: errors.New("nil file fetcher")}
+	}
+
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.hasCachedDeployment {
+		if err := ctx.Err(); err != nil {
+			return TrafficWeight{}, &fetchError{Err: fmt.Errorf("deployment file context: %w", err)}
+		}
+		deployment := f.cachedDeployment
+		f.cachedDeployment = deploymentFile{}
+		f.hasCachedDeployment = false
+		return TrafficWeight{Primary: deployment.PrimaryWeight, Canary: deployment.CanaryWeight}, nil
+	}
+
 	deployment, err := f.fetchDeployment(ctx)
 	if err != nil {
 		return TrafficWeight{}, err

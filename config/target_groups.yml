@@ -2,6 +2,7 @@ TargetGroupA:
   targets:
     - host: 127.0.0.1
       port: 18081
+      # scheme: http
       # weight: 4
     - host: 127.0.0.1
       port: 18082

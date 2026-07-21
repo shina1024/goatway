@@ -2,6 +2,7 @@ package throttle
 
 import (
 	"fmt"
+	"log/slog"
 	"os"
 	"strings"
 	"sync"
@@ -31,11 +32,31 @@ type DeploymentTracker struct {
 	state         DeploymentState
 	fetchErrCount int
 	depType       string
+	logger        *slog.Logger
+}
+
+// DeploymentTrackerOption configures a deployment tracker.
+type DeploymentTrackerOption func(*DeploymentTracker)
+
+// WithLogger configures the logger used for recoverable fetch failures.
+func WithLogger(logger *slog.Logger) DeploymentTrackerOption {
+	return func(tracker *DeploymentTracker) {
+		tracker.logger = logger
+	}
 }
 
 // NewDeploymentTracker creates an empty deployment tracker.
-func NewDeploymentTracker() *DeploymentTracker {
-	return &DeploymentTracker{}
+func NewDeploymentTracker(options ...DeploymentTrackerOption) *DeploymentTracker {
+	tracker := &DeploymentTracker{logger: slog.Default()}
+	for _, option := range options {
+		if option != nil {
+			option(tracker)
+		}
+	}
+	if tracker.logger == nil {
+		tracker.logger = slog.Default()
+	}
+	return tracker
 }
 
 const (

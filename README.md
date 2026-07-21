@@ -151,6 +151,7 @@ Defines upstream target groups.
 | Field | Type | Description |
 |---|---|---|
 | `targets` | array | `host`, `port`, `weight`, `retry_to`, `connect_timeout`, `read_timeout`, `idle_conn_timeout` |
+| `scheme` | string | Upstream URL scheme: `"http"` or `"https"` (default: `"http"`). Target-level overrides group-level |
 | `max_try_count` | int | Maximum attempts (0 means number of targets) |
 | `retry_cases` | array | `"server_error"`, `"timeout"` |
 | `retry_non_idempotent` | bool | Retry POST/PATCH as well |

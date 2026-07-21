@@ -18,9 +18,21 @@ func Test_Config_Load_rejects_invalid_configuration_with_typed_errors(t *testing
 		{"negative target weight", func(files map[string]string) {
 			files["target_groups.yml"] = strings.Replace(files["target_groups.yml"], "weight: 1", "weight: -1", 1)
 		}, "negative weight", false},
+		{"empty target list", func(files map[string]string) {
+			files["target_groups.yml"] = "catalog:\n  targets: []\n"
+		}, "empty target list", false},
+		{"empty host", func(files map[string]string) {
+			files["target_groups.yml"] = strings.Replace(files["target_groups.yml"], "host: catalog-a", "host: \"\"", 1)
+		}, "empty host", false},
+		{"non-positive port", func(files map[string]string) {
+			files["target_groups.yml"] = strings.Replace(files["target_groups.yml"], "port: 8080", "port: 0", 1)
+		}, "non-positive port", false},
 		{"mixed target weights", func(files map[string]string) {
 			files["target_groups.yml"] = strings.Replace(files["target_groups.yml"], "host: catalog-b\n      port: 8080\n      weight: 1", "host: catalog-b\n      port: 8080\n      weight: 0", 1)
 		}, "mixed weighted and nonweighted", false},
+		{"empty destination list", func(files map[string]string) {
+			files["routes.yml"] = "- from:\n    path: ^/sample/(.+)$\n  to:\n    destinations: []\n"
+		}, "empty destination list", false},
 		{"mixed destination weights", func(files map[string]string) {
 			files["routes.yml"] = strings.Replace(files["routes.yml"], "      - target_group: secondary\n        path: /secondary/$1\n        weight: 1", "      - target_group: secondary\n        path: /secondary/$1\n        weight: 0", 1)
 		}, "mixed weighted and nonweighted", false},

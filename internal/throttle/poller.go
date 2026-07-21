@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log/slog"
 	"time"
 )
 
@@ -73,10 +72,10 @@ func (t *DeploymentTracker) recordFetchError(ctx context.Context, err error) {
 	}
 	t.mu.Unlock()
 
-	slog.WarnContext(
+	t.logger.WarnContext(
 		ctx,
 		fmt.Sprintf("(%d/%d) throttle fetch failed", count, FallbackThreshold),
-		slog.Any("error", err),
+		"error", err,
 	)
 }
 

@@ -42,6 +42,9 @@ func (config Config) Validate() error {
 
 func (config Config) validateTargetGroups() error {
 	for groupID, group := range config.TargetGroups {
+		if len(group.Targets) == 0 {
+			return invalid("target_groups.yml", string(groupID)+".targets", "empty target list", "")
+		}
 		if group.MaxTryCount < 0 {
 			return invalid("target_groups.yml", string(groupID)+".max_try_count", "negative max try count", "")
 		}
@@ -59,6 +62,12 @@ func (config Config) validateTargetGroups() error {
 		}
 		addresses := make(map[TargetAddress]struct{}, len(group.Targets))
 		for index, target := range group.Targets {
+			if target.Host == "" {
+				return invalid("target_groups.yml", string(groupID)+".targets["+strconv.Itoa(index)+"].host", "empty host", "")
+			}
+			if target.Port <= 0 {
+				return invalid("target_groups.yml", string(groupID)+".targets["+strconv.Itoa(index)+"].port", "non-positive port", "")
+			}
 			if target.ConnectTimeout < 0 || target.ReadTimeout < 0 || target.IdleConnTimeout < 0 {
 				return invalid("target_groups.yml", string(groupID)+".targets["+strconv.Itoa(index)+"]", "negative timeout", "")
 			}
@@ -86,6 +95,9 @@ func (config Config) validateTargetGroups() error {
 
 func (config Config) validateRoutes() error {
 	for routeIndex, route := range config.Routes {
+		if len(route.To.Destinations) == 0 {
+			return invalid("routes.yml", "routes["+strconv.Itoa(routeIndex)+"].to.destinations", "empty destination list", "")
+		}
 		if _, err := regexp.Compile(route.From.Path); err != nil {
 			return invalid("routes.yml", "routes["+strconv.Itoa(routeIndex)+"].from.path", "invalid route regexp", route.From.Path)
 		}

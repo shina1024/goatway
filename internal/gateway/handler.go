@@ -64,6 +64,9 @@ func NewHandler(
 			option(handler)
 		}
 	}
+	if handler.configuration == nil || handler.registry == nil || handler.routes == nil || handler.limiter == nil || handler.tracker == nil {
+		panic("gateway: nil dependency passed to NewHandler")
+	}
 	if handler.logger == nil {
 		handler.logger = slog.Default()
 	}
@@ -75,7 +78,7 @@ func NewHandler(
 
 // ServeHTTP applies the gateway request flow in its required order.
 func (handler *Handler) ServeHTTP(writer http.ResponseWriter, request *http.Request) {
-	if handler == nil || request == nil || handler.configuration == nil || handler.registry == nil || handler.routes == nil || handler.proxy == nil {
+	if handler == nil || request == nil || handler.configuration == nil || handler.registry == nil || handler.routes == nil || handler.limiter == nil || handler.tracker == nil || handler.proxy == nil {
 		http.Error(writer, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
 		return
 	}

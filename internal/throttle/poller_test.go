@@ -1,8 +1,10 @@
 package throttle
 
 import (
+	"bytes"
 	"context"
 	"errors"
+	"log/slog"
 	"testing"
 	"time"
 
@@ -99,6 +101,37 @@ func Test_fetch_does_not_publish_partial_state_when_weight_fetch_fails(t *testin
 	// Then
 	require.NoError(t, err)
 	require.Equal(t, want, tracker.GetDeploymentState())
+}
+
+func Test_DeploymentTracker_uses_injected_logger_for_fetch_errors(t *testing.T) {
+	// Given
+	var logs bytes.Buffer
+	logger := slog.New(slog.NewTextHandler(&logs, nil))
+	tracker := NewDeploymentTracker(WithLogger(logger))
+	fetcher := stubFetcher{
+		fetchInstanceCounts: func(context.Context) (InstanceCounts, error) {
+			return InstanceCounts{}, &FetchError{Err: errors.New("deployment unavailable")}
+		},
+		fetchTrafficWeight: func(context.Context) (TrafficWeight, error) {
+			return TrafficWeight{}, nil
+		},
+	}
+
+	// When
+	err := tracker.fetch(context.Background(), fetcher)
+
+	// Then
+	require.NoError(t, err)
+	require.Contains(t, logs.String(), "throttle fetch failed")
+	require.Contains(t, logs.String(), "deployment unavailable")
+}
+
+func Test_NewDeploymentTracker_uses_default_logger_when_nil_is_injected(t *testing.T) {
+	// Given
+	tracker := NewDeploymentTracker(WithLogger(nil))
+
+	// Then
+	require.Same(t, slog.Default(), tracker.logger)
 }
 
 func Test_Poll_fetches_immediately_before_first_interval(t *testing.T) {

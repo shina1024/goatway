@@ -89,6 +89,7 @@ func main() {
 			logger.Error("shutdown failed", slog.Any("err", err))
 		}
 		cancel()
+		signal.Stop(sig)
 	}()
 
 	logger.Info("goatway started", slog.String("addr", *listenAddr), slog.String("config_dir", *configDir))
