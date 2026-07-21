@@ -14,6 +14,7 @@ const defaultIdleConnTimeout = 90 * time.Second
 // Target is an immutable, fully resolved upstream target.
 type Target struct {
 	host            string
+	scheme          string
 	port            int
 	connectTimeout  time.Duration
 	readTimeout     time.Duration
@@ -24,6 +25,7 @@ type Target struct {
 func newTarget(group config.TargetGroupConfig, target config.TargetConfig) Target {
 	return Target{
 		host:            target.Host,
+		scheme:          group.SchemeFor(target),
 		port:            target.Port,
 		connectTimeout:  group.ConnectTimeoutFor(target),
 		readTimeout:     group.ReadTimeoutFor(target),
@@ -38,6 +40,10 @@ func (target Target) Address() string {
 
 func (target Target) Host() string {
 	return target.host
+}
+
+func (target Target) Scheme() string {
+	return target.scheme
 }
 
 func (target Target) Port() int {

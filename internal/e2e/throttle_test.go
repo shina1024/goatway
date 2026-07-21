@@ -11,7 +11,6 @@ import (
 
 func TestS8_rejects_over_limit_then_releases_completed_requests(t *testing.T) {
 	// Given
-	setThrottleState(t, defaultState())
 	started := make(chan struct{}, 2)
 	release := make(chan struct{})
 	var entered atomic.Int64
@@ -52,7 +51,6 @@ func TestS8_rejects_over_limit_then_releases_completed_requests(t *testing.T) {
 
 func TestS9_disables_throttling_when_deployment_state_is_zero(t *testing.T) {
 	// Given
-	setThrottleState(t, deploymentState{})
 	started := make(chan struct{}, 3)
 	release := make(chan struct{})
 	backend := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
@@ -85,7 +83,6 @@ func TestS9_disables_throttling_when_deployment_state_is_zero(t *testing.T) {
 
 func TestS10_generates_distinct_trace_ids(t *testing.T) {
 	// Given
-	setThrottleState(t, defaultState())
 	backend := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		writer.Header().Set("X-Goatway-Trace-ID", request.Header.Get("X-Goatway-Trace-ID"))
 		writer.WriteHeader(http.StatusNoContent)

@@ -23,6 +23,7 @@ type Config struct {
 
 type TargetGroupConfig struct {
 	Targets              []TargetConfig `yaml:"targets"`
+	Scheme               string         `yaml:"scheme"`
 	MaxTryCount          int            `yaml:"max_try_count"`
 	RetryCases           []string       `yaml:"retry_cases"`
 	RetryNonIdempotent   bool           `yaml:"retry_non_idempotent"`
@@ -37,6 +38,7 @@ type TargetGroupConfig struct {
 
 type TargetConfig struct {
 	Host            string        `yaml:"host"`
+	Scheme          string        `yaml:"scheme"`
 	Port            int           `yaml:"port"`
 	Weight          Weight        `yaml:"weight"`
 	RetryTo         TargetAddress `yaml:"retry_to"`

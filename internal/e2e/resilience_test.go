@@ -12,7 +12,6 @@ import (
 
 func TestS5_retries_server_errors_only_for_idempotent_requests(t *testing.T) {
 	// Given
-	setThrottleState(t, defaultState())
 	var failed, healthy atomic.Int64
 	backendFail := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
 		failed.Add(1)
@@ -47,7 +46,6 @@ func TestS5_retries_server_errors_only_for_idempotent_requests(t *testing.T) {
 
 func TestS6_retries_timeouts_and_returns_gateway_timeout_when_unmatched(t *testing.T) {
 	// Given
-	setThrottleState(t, defaultState())
 	slow := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, request *http.Request) {
 		<-request.Context().Done()
 	}))
@@ -78,7 +76,6 @@ func TestS6_retries_timeouts_and_returns_gateway_timeout_when_unmatched(t *testi
 
 func TestS7_retries_to_configured_target_group_with_its_rewrite(t *testing.T) {
 	// Given
-	setThrottleState(t, defaultState())
 	backendA := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) { writer.WriteHeader(http.StatusInternalServerError) }))
 	defer backendA.Close()
 	paths := make(chan string, 1)

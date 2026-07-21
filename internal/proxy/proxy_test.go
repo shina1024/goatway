@@ -74,6 +74,26 @@ func TestHandler_Forward_forwards_rewritten_request_and_copies_response(t *testi
 	require.Equal(t, "upstream body", recorder.Body.String())
 }
 
+func TestHandler_Forward_uses_target_scheme(t *testing.T) {
+	// Given
+	backend := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+		writer.WriteHeader(http.StatusOK)
+	}))
+	defer backend.Close()
+	group, target := testTarget(t, strings.Replace(backend.URL, "http://", "https://", 1), time.Second)
+
+	// When
+	result, err := NewHandler().Forward(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "/", nil), ForwardInput{
+		Target: target,
+		Group:  group,
+		Match:  router.Match{RoutedPathMap: map[string]string{"api": "/"}},
+	})
+
+	// Then
+	require.Error(t, err)
+	require.Equal(t, ErrClassOther, result.ErrClass)
+}
+
 func TestHandler_Forward_classifies_timeout_and_transport_errors(t *testing.T) {
 	// Given
 	slowBackend := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, request *http.Request) {
@@ -187,7 +207,7 @@ func testTarget(t *testing.T, rawURL string, readTimeout time.Duration) (*target
 		"api": {
 			MaxIdleConnsPerHost: 3,
 			Targets: []config.TargetConfig{{
-				Host: host, Port: port, Weight: 1, ReadTimeout: config.Milliseconds(readTimeout / time.Millisecond),
+				Host: host, Port: port, Weight: 1, Scheme: parsed.Scheme, ReadTimeout: config.Milliseconds(readTimeout / time.Millisecond),
 			}},
 		},
 	})

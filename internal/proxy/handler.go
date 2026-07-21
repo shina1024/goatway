@@ -161,7 +161,7 @@ func (handler *Handler) ForwardBuffered(writer http.ResponseWriter, request *htt
 		}
 	}
 	result := AttemptResult{TraceID: traceID}
-	endpoint := &url.URL{Scheme: "http", Host: input.Target.Address(), Path: rewrittenPath, RawQuery: request.URL.RawQuery}
+	endpoint := &url.URL{Scheme: input.Target.Scheme(), Host: input.Target.Address(), Path: rewrittenPath, RawQuery: request.URL.RawQuery}
 	outbound, err := http.NewRequestWithContext(request.Context(), request.Method, endpoint.String(), attempt.Body.Open())
 	if err != nil {
 		return handler.failed(request.Context(), result, "build upstream request", err)

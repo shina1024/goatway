@@ -55,6 +55,40 @@ func TestNewRegistry_resolves_target_timeouts_by_precedence(t *testing.T) {
 	}
 }
 
+func TestNewRegistry_resolves_target_scheme_by_precedence(t *testing.T) {
+	tests := []struct {
+		name         string
+		targetScheme string
+		groupScheme  string
+		want         string
+	}{
+		{name: "uses target scheme", targetScheme: "http", groupScheme: "https", want: "http"},
+		{name: "uses group scheme", groupScheme: "https", want: "https"},
+		{name: "uses default scheme", want: "http"},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			// Given
+			registry := newRegistry(t, map[config.TargetGroupID]config.TargetGroupConfig{
+				"api": {
+					Scheme: test.groupScheme,
+					Targets: []config.TargetConfig{{
+						Host: "api.example.test", Port: 8443, Weight: 1, Scheme: test.targetScheme,
+					}},
+				},
+			})
+
+			// When
+			group, err := registry.Lookup("api")
+
+			// Then
+			require.NoError(t, err)
+			require.Equal(t, test.want, group.Targets()[0].Scheme())
+		})
+	}
+}
+
 func TestTargetGroup_ScheduledTargets_rotates_equal_weight_first_target(t *testing.T) {
 	// Given
 	registry := newRegistry(t, map[config.TargetGroupID]config.TargetGroupConfig{

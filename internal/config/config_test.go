@@ -47,6 +47,33 @@ func Test_TargetGroupConfig_resolves_zero_values_to_defaults(t *testing.T) {
 	require.Equal(t, 500*time.Millisecond, retryMax)
 }
 
+func Test_TargetGroupConfig_SchemeFor_resolves_target_group_and_default(t *testing.T) {
+	tests := []struct {
+		name         string
+		targetScheme string
+		groupScheme  string
+		want         string
+	}{
+		{name: "uses target scheme", targetScheme: "http", groupScheme: "https", want: "http"},
+		{name: "uses group scheme", groupScheme: "https", want: "https"},
+		{name: "uses default scheme", want: "http"},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			// Given
+			group := TargetGroupConfig{Scheme: test.groupScheme}
+			target := TargetConfig{Scheme: test.targetScheme}
+
+			// When
+			got := group.SchemeFor(target)
+
+			// Then
+			require.Equal(t, test.want, got)
+		})
+	}
+}
+
 func writeConfigFiles(t *testing.T, files map[string]string) string {
 	t.Helper()
 	dir := t.TempDir()

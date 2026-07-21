@@ -60,6 +60,12 @@ func Test_Config_Load_rejects_invalid_configuration_with_typed_errors(t *testing
 		{"negative retry interval", func(files map[string]string) {
 			files["target_groups.yml"] = strings.Replace(files["target_groups.yml"], "retry_base_interval: 75", "retry_base_interval: -1", 1)
 		}, "negative retry interval", false},
+		{"invalid target group scheme", func(files map[string]string) {
+			files["target_groups.yml"] = strings.Replace(files["target_groups.yml"], "max_try_count: 2", "scheme: ftp\n  max_try_count: 2", 1)
+		}, "invalid scheme", false},
+		{"invalid target scheme", func(files map[string]string) {
+			files["target_groups.yml"] = strings.Replace(files["target_groups.yml"], "host: catalog-a\n      port: 8080", "host: catalog-a\n      scheme: ftp\n      port: 8080", 1)
+		}, "invalid scheme", false},
 		{"negative deployment weight", func(files map[string]string) {
 			files["deployment.yml"] = strings.Replace(files["deployment.yml"], "primary_weight: 90", "primary_weight: -1", 1)
 		}, "negative weight", false},

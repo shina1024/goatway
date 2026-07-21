@@ -12,7 +12,6 @@ import (
 
 func TestS4_alternates_equal_weight_targets(t *testing.T) {
 	// Given
-	setThrottleState(t, defaultState())
 	var mutex sync.Mutex
 	var order []string
 	backend := func(name string) *httptest.Server {

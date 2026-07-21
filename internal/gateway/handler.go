@@ -20,6 +20,7 @@ type Handler struct {
 	registry      *targetgroup.Registry
 	routes        *router.Router
 	limiter       *throttle.Limiter
+	tracker       *throttle.DeploymentTracker
 	proxy         *proxy.Handler
 	logger        *slog.Logger
 }
@@ -47,6 +48,7 @@ func NewHandler(
 	registry *targetgroup.Registry,
 	routes *router.Router,
 	limiter *throttle.Limiter,
+	tracker *throttle.DeploymentTracker,
 	options ...Option,
 ) *Handler {
 	handler := &Handler{
@@ -54,6 +56,7 @@ func NewHandler(
 		registry:      registry,
 		routes:        routes,
 		limiter:       limiter,
+		tracker:       tracker,
 		logger:        slog.Default(),
 	}
 	for _, option := range options {
@@ -102,11 +105,11 @@ func (handler *Handler) ServeHTTP(writer http.ResponseWriter, request *http.Requ
 		client := string(match.ClientType)
 		count := handler.limiter.Inc(client)
 		defer handler.limiter.Dec(client)
-		deploymentState := throttle.GetDeploymentState()
+		deploymentState := handler.tracker.GetDeploymentState()
 		instanceCounts := deploymentState.InstanceCounts
 		trafficWeight := deploymentState.TrafficWeight
-		depType := throttle.GetDepType()
-		if throttle.IsOverLimit(client, count, depType, instanceCounts, trafficWeight) {
+		depType := handler.tracker.GetDepType()
+		if handler.limiter.IsOverLimit(client, count, depType, instanceCounts, trafficWeight) {
 			handler.logger.WarnContext(
 				request.Context(), "gateway throttle rejected",
 				slog.String("trace_id", traceID),

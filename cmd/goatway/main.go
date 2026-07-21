@@ -57,7 +57,8 @@ func main() {
 		os.Exit(1)
 	}
 
-	if err := throttle.SetDepType(); err != nil {
+	tracker := throttle.NewDeploymentTracker()
+	if err := tracker.SetDepType(); err != nil {
 		logger.Error("failed to detect deployment type", slog.Any("err", err))
 		os.Exit(1)
 	}
@@ -65,9 +66,9 @@ func main() {
 	fetcher := throttle.NewFileFetcher(filepath.Join(*configDir, "deployment.yml"))
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	go throttle.Poll(ctx, fetcher, time.Second)
+	go tracker.Poll(ctx, fetcher, time.Second)
 
-	handler := gateway.NewHandler(cfg, registry, routes, limiter, gateway.WithLogger(logger))
+	handler := gateway.NewHandler(cfg, registry, routes, limiter, tracker, gateway.WithLogger(logger))
 
 	server := &http.Server{
 		Addr:         *listenAddr,

@@ -142,11 +142,11 @@ func Test_IsOverLimit_returns_article_threshold_decisions(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			// Given
 			path := writeTestFile(t, "max_concurrent_requests.yml", tt.limits)
-			_, err := NewLimiter(path)
+			limiter, err := NewLimiter(path)
 			require.NoError(t, err)
 
 			// When
-			got := IsOverLimit(tt.client, tt.count, tt.depType, tt.instanceCounts, tt.trafficWeight)
+			got := limiter.IsOverLimit(tt.client, tt.count, tt.depType, tt.instanceCounts, tt.trafficWeight)
 
 			// Then
 			require.Equal(t, tt.want, got)

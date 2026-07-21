@@ -35,17 +35,6 @@ type fixture struct {
 	deployment   string
 }
 
-type deploymentState struct {
-	primaryPods   int
-	canaryPods    int
-	primaryWeight int
-	canaryWeight  int
-}
-
-func defaultState() deploymentState {
-	return deploymentState{primaryPods: 1, primaryWeight: 100}
-}
-
 func newGateway(t *testing.T, value fixture) *httptest.Server {
 	t.Helper()
 	dir := t.TempDir()
@@ -64,8 +53,24 @@ func newGateway(t *testing.T, value fixture) *httptest.Server {
 	require.NoError(t, err)
 	limiter, err := throttle.NewLimiter(filepath.Join(dir, "max_concurrent_requests.yml"))
 	require.NoError(t, err)
+	tracker := throttle.NewDeploymentTracker()
+	require.NoError(t, tracker.SetDepType())
+	ctx, cancel := context.WithTimeout(t.Context(), time.Second)
+	t.Cleanup(cancel)
+	updated := make(chan struct{}, 1)
+	done := make(chan struct{})
+	go func() {
+		tracker.Poll(ctx, notifyingFetcher{
+			fetcher: throttle.NewFileFetcher(filepath.Join(dir, "deployment.yml")),
+			updated: updated,
+		}, time.Nanosecond)
+		close(done)
+	}()
+	receive(t, updated, "throttle poller did not update state")
+	cancel()
+	receive(t, done, "throttle poller did not stop")
 	handler := gateway.NewHandler(
-		cfg, registry, routes, limiter,
+		cfg, registry, routes, limiter, tracker,
 		gateway.WithLogger(slog.New(slog.NewTextHandler(io.Discard, nil))),
 	)
 	server := httptest.NewServer(handler)
@@ -97,37 +102,25 @@ func routeYAML(path string, clients string, ranges string, destinations string) 
 	return fmt.Sprintf("- from:\n    path: %s\n    clients: %s\n    ip_range_groups: %s\n  to:\n    destinations:\n%s", path, clients, ranges, destinations)
 }
 
-func setThrottleState(t *testing.T, state deploymentState) {
-	t.Helper()
-	require.NoError(t, throttle.SetDepType())
-	ctx, cancel := context.WithTimeout(t.Context(), time.Second)
-	t.Cleanup(cancel)
-	updated := make(chan struct{}, 1)
-	done := make(chan struct{})
-	go func() {
-		throttle.Poll(ctx, stateFetcher{state: state, updated: updated}, time.Nanosecond)
-		close(done)
-	}()
-	receive(t, updated, "throttle poller did not update state")
-	cancel()
-	receive(t, done, "throttle poller did not stop")
-}
-
-type stateFetcher struct {
-	state   deploymentState
+type notifyingFetcher struct {
+	fetcher throttle.Fetcher
 	updated chan<- struct{}
 }
 
-func (fetcher stateFetcher) FetchInstanceCounts(context.Context) (throttle.InstanceCounts, error) {
-	return throttle.InstanceCounts{Primary: fetcher.state.primaryPods, Canary: fetcher.state.canaryPods}, nil
+func (fetcher notifyingFetcher) FetchInstanceCounts(ctx context.Context) (throttle.InstanceCounts, error) {
+	return fetcher.fetcher.FetchInstanceCounts(ctx)
 }
 
-func (fetcher stateFetcher) FetchTrafficWeight(context.Context) (throttle.TrafficWeight, error) {
+func (fetcher notifyingFetcher) FetchTrafficWeight(ctx context.Context) (throttle.TrafficWeight, error) {
+	weight, err := fetcher.fetcher.FetchTrafficWeight(ctx)
+	if err != nil {
+		return throttle.TrafficWeight{}, err
+	}
 	select {
 	case fetcher.updated <- struct{}{}:
 	default:
 	}
-	return throttle.TrafficWeight{Primary: fetcher.state.primaryWeight, Canary: fetcher.state.canaryWeight}, nil
+	return weight, nil
 }
 
 func requestStatus(t *testing.T, server *httptest.Server, method string, path string, token string) int {

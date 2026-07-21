@@ -13,7 +13,6 @@ import (
 
 func TestS1_routes_and_rewrites_matching_requests(t *testing.T) {
 	// Given
-	setThrottleState(t, defaultState())
 	paths := make(chan string, 1)
 	backend := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		paths <- request.URL.Path
@@ -37,7 +36,6 @@ func TestS1_routes_and_rewrites_matching_requests(t *testing.T) {
 
 func TestS1_returns_not_found_when_no_route_matches(t *testing.T) {
 	// Given
-	setThrottleState(t, defaultState())
 	backend := httptest.NewServer(http.NotFoundHandler())
 	defer backend.Close()
 	host, port := backendAddress(t, backend)
@@ -67,7 +65,6 @@ func TestS2_enforces_tokens_and_route_clients(t *testing.T) {
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			// Given
-			setThrottleState(t, defaultState())
 			backend := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) { writer.WriteHeader(http.StatusNoContent) }))
 			defer backend.Close()
 			host, port := backendAddress(t, backend)
@@ -98,7 +95,6 @@ func TestS3_enforces_ip_range_groups(t *testing.T) {
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			// Given
-			setThrottleState(t, defaultState())
 			backend := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) { writer.WriteHeader(http.StatusNoContent) }))
 			defer backend.Close()
 			host, port := backendAddress(t, backend)
@@ -119,7 +115,6 @@ func TestS3_enforces_ip_range_groups(t *testing.T) {
 
 func TestS4_distributes_weighted_targets_and_interleaves_smaller_weight(t *testing.T) {
 	// Given
-	setThrottleState(t, defaultState())
 	var hitsA, hitsB atomic.Int64
 	var orderMu sync.Mutex
 	var order []string

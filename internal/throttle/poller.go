@@ -5,41 +5,34 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"sync"
 	"time"
 )
 
 // FallbackThreshold is the number of consecutive fetch failures tolerated before degrading.
 const FallbackThreshold = 60
 
-var (
-	stateMu         sync.RWMutex
-	deploymentState DeploymentState
-	fetchErrCount   int
-)
-
 // GetDeploymentState returns one consistent deployment snapshot.
-func GetDeploymentState() DeploymentState {
-	stateMu.RLock()
-	defer stateMu.RUnlock()
-	return deploymentState
+func (t *DeploymentTracker) GetDeploymentState() DeploymentState {
+	t.mu.RLock()
+	defer t.mu.RUnlock()
+	return t.state
 }
 
 // GetInstanceCounts returns the most recently fetched deployment counts.
-func GetInstanceCounts() InstanceCounts {
-	return GetDeploymentState().InstanceCounts
+func (t *DeploymentTracker) GetInstanceCounts() InstanceCounts {
+	return t.GetDeploymentState().InstanceCounts
 }
 
 // GetTrafficWeight returns the most recently fetched traffic weights.
-func GetTrafficWeight() TrafficWeight {
-	return GetDeploymentState().TrafficWeight
+func (t *DeploymentTracker) GetTrafficWeight() TrafficWeight {
+	return t.GetDeploymentState().TrafficWeight
 }
 
-func fetch(ctx context.Context, fetcher Fetcher) error {
+func (t *DeploymentTracker) fetch(ctx context.Context, fetcher Fetcher) error {
 	counts, err := fetcher.FetchInstanceCounts(ctx)
 	if err != nil {
 		if isFetchError(err) {
-			recordFetchError(ctx, err)
+			t.recordFetchError(ctx, err)
 			return nil
 		}
 
@@ -53,16 +46,16 @@ func fetch(ctx context.Context, fetcher Fetcher) error {
 	weights, err := fetcher.FetchTrafficWeight(ctx)
 	if err != nil {
 		if isFetchError(err) {
-			recordFetchError(ctx, err)
+			t.recordFetchError(ctx, err)
 			return nil
 		}
 		return err
 	}
 
-	stateMu.Lock()
-	deploymentState = DeploymentState{InstanceCounts: counts, TrafficWeight: weights}
-	fetchErrCount = 0
-	stateMu.Unlock()
+	t.mu.Lock()
+	t.state = DeploymentState{InstanceCounts: counts, TrafficWeight: weights}
+	t.fetchErrCount = 0
+	t.mu.Unlock()
 	return nil
 }
 
@@ -71,14 +64,14 @@ func isFetchError(err error) bool {
 	return errors.As(err, &fetchErr)
 }
 
-func recordFetchError(ctx context.Context, err error) {
-	stateMu.Lock()
-	fetchErrCount++
-	count := fetchErrCount
+func (t *DeploymentTracker) recordFetchError(ctx context.Context, err error) {
+	t.mu.Lock()
+	t.fetchErrCount++
+	count := t.fetchErrCount
 	if count > FallbackThreshold {
-		deploymentState = DeploymentState{}
+		t.state = DeploymentState{}
 	}
-	stateMu.Unlock()
+	t.mu.Unlock()
 
 	slog.WarnContext(
 		ctx,
@@ -88,7 +81,7 @@ func recordFetchError(ctx context.Context, err error) {
 }
 
 // Poll fetches throttling state on interval until the context ends or fetching terminates.
-func Poll(ctx context.Context, fetcher Fetcher, interval time.Duration) {
+func (t *DeploymentTracker) Poll(ctx context.Context, fetcher Fetcher, interval time.Duration) {
 	if interval <= 0 {
 		return
 	}
@@ -97,7 +90,7 @@ func Poll(ctx context.Context, fetcher Fetcher, interval time.Duration) {
 		return
 	default:
 	}
-	if err := fetch(ctx, fetcher); err != nil {
+	if err := t.fetch(ctx, fetcher); err != nil {
 		return
 	}
 
@@ -108,7 +101,7 @@ polling:
 		case <-ctx.Done():
 			break polling
 		case <-ticker.C:
-			if err := fetch(ctx, fetcher); err != nil {
+			if err := t.fetch(ctx, fetcher); err != nil {
 				break polling
 			}
 		}

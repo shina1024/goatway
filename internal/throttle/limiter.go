@@ -8,15 +8,12 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-var (
-	maxConcurrentMu  sync.RWMutex
-	maxConcurrentMap = map[string]int{}
-)
-
 // Limiter tracks concurrent transfers by client type.
 type Limiter struct {
-	mu          sync.Mutex
-	clientCount map[string]int
+	mu               sync.Mutex
+	clientCount      map[string]int
+	maxConcurrentMu  sync.RWMutex
+	maxConcurrentMap map[string]int
 }
 
 // NewLimiter loads the static per-client maximums once from path.
@@ -31,11 +28,10 @@ func NewLimiter(path string) (*Limiter, error) {
 		return nil, fmt.Errorf("parse max concurrent requests file %q: %w", path, err)
 	}
 
-	maxConcurrentMu.Lock()
-	maxConcurrentMap = limits
-	maxConcurrentMu.Unlock()
-
-	return &Limiter{clientCount: make(map[string]int)}, nil
+	return &Limiter{
+		clientCount:      make(map[string]int),
+		maxConcurrentMap: limits,
+	}, nil
 }
 
 // Inc records a transfer start and returns the new active count for client.
@@ -69,14 +65,14 @@ func (l *Limiter) Dec(client string) {
 }
 
 // IsOverLimit applies the article's per-pod concurrency calculation.
-func IsOverLimit(
+func (l *Limiter) IsOverLimit(
 	client string,
 	count int,
 	depType string,
 	instanceCounts InstanceCounts,
 	trafficWeight TrafficWeight,
 ) bool {
-	maximum, found := maxConcurrent(client)
+	maximum, found := l.maxConcurrent(client)
 	if !found {
 		return false
 	}
@@ -109,9 +105,13 @@ func IsOverLimit(
 	return count > threshold
 }
 
-func maxConcurrent(client string) (int, bool) {
-	maxConcurrentMu.RLock()
-	defer maxConcurrentMu.RUnlock()
-	maximum, found := maxConcurrentMap[client]
+func (l *Limiter) maxConcurrent(client string) (int, bool) {
+	if l == nil {
+		return 0, false
+	}
+
+	l.maxConcurrentMu.RLock()
+	defer l.maxConcurrentMu.RUnlock()
+	maximum, found := l.maxConcurrentMap[client]
 	return maximum, found
 }

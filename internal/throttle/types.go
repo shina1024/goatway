@@ -25,14 +25,22 @@ type DeploymentState struct {
 	TrafficWeight  TrafficWeight
 }
 
+// DeploymentTracker owns the local deployment type and fetched deployment state.
+type DeploymentTracker struct {
+	mu            sync.RWMutex
+	state         DeploymentState
+	fetchErrCount int
+	depType       string
+}
+
+// NewDeploymentTracker creates an empty deployment tracker.
+func NewDeploymentTracker() *DeploymentTracker {
+	return &DeploymentTracker{}
+}
+
 const (
 	primaryDepType = "primary"
 	canaryDepType  = "canary"
-)
-
-var (
-	depTypeMu sync.RWMutex
-	depType   string
 )
 
 // DetectDepType reproduces the article's hostname convention.
@@ -44,23 +52,23 @@ func DetectDepType(hostname string) string {
 }
 
 // SetDepType records the current deployment type from the local hostname.
-func SetDepType() error {
+func (t *DeploymentTracker) SetDepType() error {
 	hostname, err := os.Hostname()
 	if err != nil {
 		return fmt.Errorf("read hostname: %w", err)
 	}
 
-	depTypeMu.Lock()
-	depType = DetectDepType(hostname)
-	depTypeMu.Unlock()
+	t.mu.Lock()
+	t.depType = DetectDepType(hostname)
+	t.mu.Unlock()
 	return nil
 }
 
 // GetDepType returns the deployment type most recently set by SetDepType.
-func GetDepType() string {
-	depTypeMu.RLock()
-	defer depTypeMu.RUnlock()
-	return depType
+func (t *DeploymentTracker) GetDepType() string {
+	t.mu.RLock()
+	defer t.mu.RUnlock()
+	return t.depType
 }
 
 // FetchError marks a recoverable fetch failure for errors.As callers.

@@ -45,6 +45,9 @@ func (config Config) validateTargetGroups() error {
 		if group.MaxTryCount < 0 {
 			return invalid("target_groups.yml", string(groupID)+".max_try_count", "negative max try count", "")
 		}
+		if group.Scheme != "" && group.Scheme != "http" && group.Scheme != "https" {
+			return invalid("target_groups.yml", string(groupID)+".scheme", "invalid scheme", group.Scheme)
+		}
 		if group.ConnectTimeout < 0 || group.ReadTimeout < 0 || group.IdleConnTimeout < 0 {
 			return invalid("target_groups.yml", string(groupID)+".timeouts", "negative timeout", "")
 		}
@@ -58,6 +61,9 @@ func (config Config) validateTargetGroups() error {
 		for index, target := range group.Targets {
 			if target.ConnectTimeout < 0 || target.ReadTimeout < 0 || target.IdleConnTimeout < 0 {
 				return invalid("target_groups.yml", string(groupID)+".targets["+strconv.Itoa(index)+"]", "negative timeout", "")
+			}
+			if target.Scheme != "" && target.Scheme != "http" && target.Scheme != "https" {
+				return invalid("target_groups.yml", string(groupID)+".targets["+strconv.Itoa(index)+"].scheme", "invalid scheme", target.Scheme)
 			}
 			addresses[TargetAddress(net.JoinHostPort(target.Host, strconv.Itoa(target.Port)))] = struct{}{}
 		}

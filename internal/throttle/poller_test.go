@@ -24,8 +24,8 @@ func (f stubFetcher) FetchTrafficWeight(ctx context.Context) (TrafficWeight, err
 
 func Test_fetch_degrades_instance_counts_after_more_than_fallback_threshold_errors(t *testing.T) {
 	// Given
-	resetPollingState()
-	setPollingState(InstanceCounts{Primary: 20, Canary: 1}, TrafficWeight{Primary: 90, Canary: 10}, 0)
+	tracker := NewDeploymentTracker()
+	setPollingState(tracker, InstanceCounts{Primary: 20, Canary: 1}, TrafficWeight{Primary: 90, Canary: 10}, 0)
 	fetcher := stubFetcher{
 		fetchInstanceCounts: func(context.Context) (InstanceCounts, error) {
 			return InstanceCounts{}, &FetchError{Err: errors.New("deployment unavailable")}
@@ -37,26 +37,26 @@ func Test_fetch_degrades_instance_counts_after_more_than_fallback_threshold_erro
 
 	// When
 	for range FallbackThreshold {
-		require.NoError(t, fetch(context.Background(), fetcher))
+		require.NoError(t, tracker.fetch(context.Background(), fetcher))
 	}
 
 	// Then
-	require.Equal(t, InstanceCounts{Primary: 20, Canary: 1}, GetInstanceCounts())
-	require.Equal(t, FallbackThreshold, getFetchErrCount())
+	require.Equal(t, InstanceCounts{Primary: 20, Canary: 1}, tracker.GetInstanceCounts())
+	require.Equal(t, FallbackThreshold, getFetchErrCount(tracker))
 
 	// When
-	require.NoError(t, fetch(context.Background(), fetcher))
+	require.NoError(t, tracker.fetch(context.Background(), fetcher))
 
 	// Then
-	require.Equal(t, InstanceCounts{}, GetInstanceCounts())
-	require.Equal(t, DeploymentState{}, GetDeploymentState())
-	require.Equal(t, FallbackThreshold+1, getFetchErrCount())
+	require.Equal(t, InstanceCounts{}, tracker.GetInstanceCounts())
+	require.Equal(t, DeploymentState{}, tracker.GetDeploymentState())
+	require.Equal(t, FallbackThreshold+1, getFetchErrCount(tracker))
 }
 
 func Test_fetch_resets_error_count_when_both_fetches_succeed(t *testing.T) {
 	// Given
-	resetPollingState()
-	setPollingState(InstanceCounts{}, TrafficWeight{}, 1)
+	tracker := NewDeploymentTracker()
+	setPollingState(tracker, InstanceCounts{}, TrafficWeight{}, 1)
 	fetcher := stubFetcher{
 		fetchInstanceCounts: func(context.Context) (InstanceCounts, error) {
 			return InstanceCounts{Primary: 9, Canary: 1}, nil
@@ -67,23 +67,23 @@ func Test_fetch_resets_error_count_when_both_fetches_succeed(t *testing.T) {
 	}
 
 	// When
-	err := fetch(context.Background(), fetcher)
+	err := tracker.fetch(context.Background(), fetcher)
 
 	// Then
 	require.NoError(t, err)
-	require.Equal(t, InstanceCounts{Primary: 9, Canary: 1}, GetInstanceCounts())
-	require.Equal(t, TrafficWeight{Primary: 90, Canary: 10}, GetTrafficWeight())
-	require.Zero(t, getFetchErrCount())
+	require.Equal(t, InstanceCounts{Primary: 9, Canary: 1}, tracker.GetInstanceCounts())
+	require.Equal(t, TrafficWeight{Primary: 90, Canary: 10}, tracker.GetTrafficWeight())
+	require.Zero(t, getFetchErrCount(tracker))
 }
 
 func Test_fetch_does_not_publish_partial_state_when_weight_fetch_fails(t *testing.T) {
 	// Given
-	resetPollingState()
+	tracker := NewDeploymentTracker()
 	want := DeploymentState{
 		InstanceCounts: InstanceCounts{Primary: 9, Canary: 1},
 		TrafficWeight:  TrafficWeight{Primary: 90, Canary: 10},
 	}
-	setPollingState(want.InstanceCounts, want.TrafficWeight, 0)
+	setPollingState(tracker, want.InstanceCounts, want.TrafficWeight, 0)
 	fetcher := stubFetcher{
 		fetchInstanceCounts: func(context.Context) (InstanceCounts, error) {
 			return InstanceCounts{Primary: 1, Canary: 9}, nil
@@ -94,16 +94,16 @@ func Test_fetch_does_not_publish_partial_state_when_weight_fetch_fails(t *testin
 	}
 
 	// When
-	err := fetch(context.Background(), fetcher)
+	err := tracker.fetch(context.Background(), fetcher)
 
 	// Then
 	require.NoError(t, err)
-	require.Equal(t, want, GetDeploymentState())
+	require.Equal(t, want, tracker.GetDeploymentState())
 }
 
 func Test_Poll_fetches_immediately_before_first_interval(t *testing.T) {
 	// Given
-	resetPollingState()
+	tracker := NewDeploymentTracker()
 	fetched := make(chan struct{}, 1)
 	fetcher := stubFetcher{
 		fetchInstanceCounts: func(context.Context) (InstanceCounts, error) {
@@ -117,7 +117,7 @@ func Test_Poll_fetches_immediately_before_first_interval(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
 	go func() {
-		Poll(ctx, fetcher, time.Hour)
+		tracker.Poll(ctx, fetcher, time.Hour)
 		close(done)
 	}()
 
@@ -139,12 +139,12 @@ func Test_Poll_fetches_immediately_before_first_interval(t *testing.T) {
 	require.Equal(t, DeploymentState{
 		InstanceCounts: InstanceCounts{Primary: 1},
 		TrafficWeight:  TrafficWeight{Primary: 100},
-	}, GetDeploymentState())
+	}, tracker.GetDeploymentState())
 }
 
 func Test_Poll_stops_when_instance_fetch_returns_terminating_error(t *testing.T) {
 	// Given
-	resetPollingState()
+	tracker := NewDeploymentTracker()
 	started := make(chan struct{}, 1)
 	fetcher := stubFetcher{
 		fetchInstanceCounts: func(context.Context) (InstanceCounts, error) {
@@ -159,7 +159,7 @@ func Test_Poll_stops_when_instance_fetch_returns_terminating_error(t *testing.T)
 	defer cancel()
 	done := make(chan struct{})
 	go func() {
-		Poll(ctx, fetcher, time.Nanosecond)
+		tracker.Poll(ctx, fetcher, time.Nanosecond)
 		close(done)
 	}()
 
@@ -178,22 +178,15 @@ func Test_Poll_stops_when_instance_fetch_returns_terminating_error(t *testing.T)
 	}
 }
 
-func resetPollingState() {
-	stateMu.Lock()
-	defer stateMu.Unlock()
-	deploymentState = DeploymentState{}
-	fetchErrCount = 0
+func setPollingState(tracker *DeploymentTracker, counts InstanceCounts, weight TrafficWeight, errCount int) {
+	tracker.mu.Lock()
+	defer tracker.mu.Unlock()
+	tracker.state = DeploymentState{InstanceCounts: counts, TrafficWeight: weight}
+	tracker.fetchErrCount = errCount
 }
 
-func setPollingState(counts InstanceCounts, weight TrafficWeight, errCount int) {
-	stateMu.Lock()
-	defer stateMu.Unlock()
-	deploymentState = DeploymentState{InstanceCounts: counts, TrafficWeight: weight}
-	fetchErrCount = errCount
-}
-
-func getFetchErrCount() int {
-	stateMu.RLock()
-	defer stateMu.RUnlock()
-	return fetchErrCount
+func getFetchErrCount(tracker *DeploymentTracker) int {
+	tracker.mu.RLock()
+	defer tracker.mu.RUnlock()
+	return tracker.fetchErrCount
 }

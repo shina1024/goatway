@@ -136,8 +136,9 @@ func newTestHandler(t *testing.T, cfg *config.Config, limits string) *Handler {
 	require.NoError(t, err)
 	limiter, err := throttle.NewLimiter(writeFile(t, "max_concurrent_requests.yml", limits))
 	require.NoError(t, err)
+	tracker := setThrottleState(t)
 	return NewHandler(
-		cfg, registry, routes, limiter,
+		cfg, registry, routes, limiter, tracker,
 		WithProxy(proxy.NewHandler()),
 		WithLogger(slog.New(slog.NewTextHandler(io.Discard, nil))),
 	)
@@ -177,15 +178,16 @@ func writeFile(t *testing.T, name string, contents string) string {
 	return path
 }
 
-func setThrottleState(t *testing.T) {
+func setThrottleState(t *testing.T) *throttle.DeploymentTracker {
 	t.Helper()
-	require.NoError(t, throttle.SetDepType())
+	tracker := throttle.NewDeploymentTracker()
+	require.NoError(t, tracker.SetDepType())
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	t.Cleanup(cancel)
 	updated := make(chan struct{}, 1)
 	done := make(chan struct{})
 	go func() {
-		throttle.Poll(ctx, throttleStateFetcher{updated: updated}, time.Nanosecond)
+		tracker.Poll(ctx, throttleStateFetcher{updated: updated}, time.Nanosecond)
 		close(done)
 	}()
 
@@ -202,6 +204,7 @@ func setThrottleState(t *testing.T) {
 	case <-stoppedCtx.Done():
 		t.Fatal("throttle poller did not stop")
 	}
+	return tracker
 }
 
 type throttleStateFetcher struct {

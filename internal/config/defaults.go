@@ -20,6 +20,16 @@ func (group TargetGroupConfig) ConnectTimeoutFor(target TargetConfig) time.Durat
 	return resolveTimeout(target.ConnectTimeout, group.ConnectTimeout, defaultConnectTimeout)
 }
 
+func (group TargetGroupConfig) SchemeFor(target TargetConfig) string {
+	if target.Scheme != "" {
+		return target.Scheme
+	}
+	if group.Scheme != "" {
+		return group.Scheme
+	}
+	return "http"
+}
+
 func (group TargetGroupConfig) ReadTimeoutFor(target TargetConfig) time.Duration {
 	return resolveTimeout(target.ReadTimeout, group.ReadTimeout, defaultReadTimeout)
 }
