@@ -149,7 +149,11 @@ func (group *TargetGroup) ScheduledTargets(length int) []Target {
 	target := group.targets[group.scheduler.Fetch()]
 	for range length {
 		targets = append(targets, target)
-		target = group.retryTargetMap[target]
+		next, ok := group.retryTargetMap[target]
+		if !ok {
+			break
+		}
+		target = next
 	}
 	return targets
 }

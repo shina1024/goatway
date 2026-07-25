@@ -9,6 +9,17 @@ import (
 	"goatway/internal/config"
 )
 
+func TestTargetGroup_ScheduledTargets_returns_nil_for_zero_length(t *testing.T) {
+	registry := newRegistry(t, map[config.TargetGroupID]config.TargetGroupConfig{
+		"api": {Targets: targets("a", "b")},
+	})
+	group, err := registry.Lookup("api")
+	require.NoError(t, err)
+
+	require.Nil(t, group.ScheduledTargets(0))
+	require.Nil(t, group.ScheduledTargets(-1))
+}
+
 func TestNewRegistry_resolves_target_timeouts_by_precedence(t *testing.T) {
 	tests := []struct {
 		name          string
