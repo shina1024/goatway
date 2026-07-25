@@ -6,13 +6,13 @@ import (
 	"net/http"
 
 	"goatway/internal/config"
+	"goatway/internal/headers"
 	"goatway/internal/proxy"
 	"goatway/internal/router"
 	"goatway/internal/targetgroup"
+	"goatway/internal/telemetry"
 	"goatway/internal/throttle"
 )
-
-const traceIDHeader = "X-Goatway-Trace-ID"
 
 // Handler composes route authorization, throttling, and upstream forwarding.
 type Handler struct {
@@ -91,23 +91,23 @@ func (handler *Handler) ServeHTTP(writer http.ResponseWriter, request *http.Requ
 		return
 	}
 
-	traceID := request.Header.Get(traceIDHeader)
+	writer.Header().Set(headers.TraceID, telemetry.TraceID(request.Context()))
 	originalRequest := request
 	request, err := router.WithRequestTimeOverride(request, handler.devMode)
 	if err != nil {
-		handler.logger.WarnContext(originalRequest.Context(), "gateway request time rejected", slog.String("trace_id", traceID), slog.Any("err", err))
-		handler.respond(writer, originalRequest, traceID, http.StatusBadRequest)
+		handler.logger.WarnContext(originalRequest.Context(), "gateway request time rejected", slog.String("trace_id", telemetry.TraceID(originalRequest.Context())), slog.Any("err", err))
+		handler.respond(writer, originalRequest, http.StatusBadRequest)
 		return
 	}
 
 	match, err := handler.routes.Route(request)
 	if err != nil {
-		handler.writeRouteError(writer, request, traceID, err)
+		handler.writeRouteError(writer, request, err)
 		return
 	}
 	handler.logger.InfoContext(
 		request.Context(), "gateway route matched",
-		slog.String("trace_id", traceID),
+		slog.String("trace_id", telemetry.TraceID(request.Context())),
 		slog.String("target_group", match.TargetGroupID),
 		slog.String("client", string(match.ClientType)),
 	)
@@ -123,7 +123,7 @@ func (handler *Handler) ServeHTTP(writer http.ResponseWriter, request *http.Requ
 		if handler.limiter.IsOverLimit(client, count, depType, instanceCounts, trafficWeight) {
 			handler.logger.WarnContext(
 				request.Context(), "gateway throttle rejected",
-				slog.String("trace_id", traceID),
+				slog.String("trace_id", telemetry.TraceID(request.Context())),
 				slog.String("client", client),
 				slog.Int("count", count),
 				slog.Int("maximum", handler.configuration.MaxConcurrentRequests[config.ClientType(client)]),
@@ -133,57 +133,54 @@ func (handler *Handler) ServeHTTP(writer http.ResponseWriter, request *http.Requ
 				slog.Int("primary_weight", trafficWeight.Primary),
 				slog.Int("canary_weight", trafficWeight.Canary),
 			)
-			handler.respond(writer, request, traceID, http.StatusTooManyRequests)
+			handler.respond(writer, request, http.StatusTooManyRequests)
 			return
 		}
 	}
 
 	group, err := handler.registry.Lookup(config.TargetGroupID(match.TargetGroupID))
 	if err != nil {
-		handler.logger.ErrorContext(request.Context(), "gateway target group lookup failed", slog.String("trace_id", traceID), slog.Any("err", err))
-		handler.respond(writer, request, traceID, http.StatusInternalServerError)
+		handler.logger.ErrorContext(request.Context(), "gateway target group lookup failed", slog.String("trace_id", telemetry.TraceID(request.Context())), slog.Any("err", err))
+		handler.respond(writer, request, http.StatusInternalServerError)
 		return
 	}
-	result, err := handler.proxy.ForwardWithRetry(writer, request, proxy.RetryInput{Group: group, Match: match, TraceID: traceID})
-	if result.TraceID != "" {
-		traceID = result.TraceID
-	}
+	result, err := handler.proxy.ForwardWithRetry(writer, request, proxy.RetryInput{Group: group, Match: match})
 	handler.logger.InfoContext(
 		request.Context(), "gateway upstream attempt result",
-		slog.String("trace_id", traceID),
+		slog.String("trace_id", telemetry.TraceID(request.Context())),
 		slog.Int("status", result.StatusCode),
 		slog.Int("error_class", int(result.ErrClass)),
 		slog.Any("err", err),
 	)
 	if err != nil && result.StatusCode == 0 {
-		handler.logger.ErrorContext(request.Context(), "gateway upstream forwarding failed", slog.String("trace_id", traceID), slog.Any("err", err))
-		handler.respond(writer, request, traceID, http.StatusBadGateway)
+		handler.logger.ErrorContext(request.Context(), "gateway upstream forwarding failed", slog.String("trace_id", telemetry.TraceID(request.Context())), slog.Any("err", err))
+		handler.respond(writer, request, http.StatusBadGateway)
 		return
 	}
-	handler.logger.InfoContext(request.Context(), "gateway response completed", slog.String("trace_id", traceID), slog.Int("status", result.StatusCode))
+	handler.logger.InfoContext(request.Context(), "gateway response completed", slog.String("trace_id", telemetry.TraceID(request.Context())), slog.Int("status", result.StatusCode))
 }
 
-func (handler *Handler) writeRouteError(writer http.ResponseWriter, request *http.Request, traceID string, err error) {
+func (handler *Handler) writeRouteError(writer http.ResponseWriter, request *http.Request, err error) {
 	switch {
 	case errors.Is(err, router.ErrNoRoute):
-		handler.logger.InfoContext(request.Context(), "gateway route not found", slog.String("trace_id", traceID))
-		handler.respond(writer, request, traceID, http.StatusNotFound)
+		handler.logger.InfoContext(request.Context(), "gateway route not found", slog.String("trace_id", telemetry.TraceID(request.Context())))
+		handler.respond(writer, request, http.StatusNotFound)
 	case errors.Is(err, router.ErrMissingToken):
-		handler.logger.WarnContext(request.Context(), "gateway authentication rejected", slog.String("trace_id", traceID), slog.Any("err", err))
-		handler.respond(writer, request, traceID, http.StatusUnauthorized)
+		handler.logger.WarnContext(request.Context(), "gateway authentication rejected", slog.String("trace_id", telemetry.TraceID(request.Context())), slog.Any("err", err))
+		handler.respond(writer, request, http.StatusUnauthorized)
 	case errors.Is(err, router.ErrUnknownToken), errors.Is(err, router.ErrClientNotAllowed):
-		handler.logger.WarnContext(request.Context(), "gateway authentication rejected", slog.String("trace_id", traceID), slog.Any("err", err))
-		handler.respond(writer, request, traceID, http.StatusForbidden)
+		handler.logger.WarnContext(request.Context(), "gateway authentication rejected", slog.String("trace_id", telemetry.TraceID(request.Context())), slog.Any("err", err))
+		handler.respond(writer, request, http.StatusForbidden)
 	case errors.Is(err, router.ErrIPNotAllowed):
-		handler.logger.WarnContext(request.Context(), "gateway IP authorization rejected", slog.String("trace_id", traceID), slog.Any("err", err))
-		handler.respond(writer, request, traceID, http.StatusForbidden)
+		handler.logger.WarnContext(request.Context(), "gateway IP authorization rejected", slog.String("trace_id", telemetry.TraceID(request.Context())), slog.Any("err", err))
+		handler.respond(writer, request, http.StatusForbidden)
 	default:
-		handler.logger.ErrorContext(request.Context(), "gateway route failed", slog.String("trace_id", traceID), slog.Any("err", err))
-		handler.respond(writer, request, traceID, http.StatusInternalServerError)
+		handler.logger.ErrorContext(request.Context(), "gateway route failed", slog.String("trace_id", telemetry.TraceID(request.Context())), slog.Any("err", err))
+		handler.respond(writer, request, http.StatusInternalServerError)
 	}
 }
 
-func (handler *Handler) respond(writer http.ResponseWriter, request *http.Request, traceID string, status int) {
+func (handler *Handler) respond(writer http.ResponseWriter, request *http.Request, status int) {
 	writer.WriteHeader(status)
-	handler.logger.InfoContext(request.Context(), "gateway response completed", slog.String("trace_id", traceID), slog.Int("status", status))
+	handler.logger.InfoContext(request.Context(), "gateway response completed", slog.String("trace_id", telemetry.TraceID(request.Context())), slog.Int("status", status))
 }

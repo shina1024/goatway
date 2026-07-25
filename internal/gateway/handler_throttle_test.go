@@ -7,6 +7,8 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+
+	"goatway/internal/headers"
 )
 
 func TestHandler_rejects_over_limit_request_and_releases_slot_after_response(t *testing.T) {
@@ -28,6 +30,7 @@ func TestHandler_rejects_over_limit_request_and_releases_slot_after_response(t *
 	handler := newTestHandler(t, testConfig(t, host, port), "public: 1\n", false)
 	first := gatewayRequest()
 	second := gatewayRequest()
+	second.Header.Set("traceparent", "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01")
 	firstResult := make(chan *httptest.ResponseRecorder, 1)
 
 	go func() {
@@ -51,6 +54,7 @@ func TestHandler_rejects_over_limit_request_and_releases_slot_after_response(t *
 
 	// Then
 	require.Equal(t, http.StatusTooManyRequests, secondRecorder.Code)
+	require.Equal(t, "4bf92f3577b34da6a3ce929d0e0e4736", secondRecorder.Header().Get(headers.TraceID))
 	require.Equal(t, http.StatusNoContent, firstRecorder.Code)
 	require.Equal(t, http.StatusNoContent, laterRecorder.Code)
 }
@@ -61,9 +65,9 @@ func TestHandler_does_not_leak_throttle_slot_when_route_rejects_request(t *testi
 		prepare func(*http.Request)
 		want    int
 	}{
-		{"authentication fails", func(request *http.Request) { request.Header.Del(apiTokenHeader) }, http.StatusUnauthorized},
+		{"authentication fails", func(request *http.Request) { request.Header.Del(headers.APIToken) }, http.StatusUnauthorized},
 		{"IP authorization fails", func(request *http.Request) {
-			request.Header.Set(apiTokenHeader, "public-token")
+			request.Header.Set(headers.APIToken, "public-token")
 			request.RemoteAddr = "192.0.2.1:1234"
 		}, http.StatusForbidden},
 	}
@@ -95,7 +99,7 @@ func TestHandler_does_not_leak_throttle_slot_when_route_rejects_request(t *testi
 
 func gatewayRequest() *http.Request {
 	request := httptest.NewRequest(http.MethodGet, "/products/42", nil)
-	request.Header.Set(apiTokenHeader, "public-token")
+	request.Header.Set(headers.APIToken, "public-token")
 	request.RemoteAddr = "127.0.0.1:1234"
 	return request
 }

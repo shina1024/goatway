@@ -17,13 +17,13 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"goatway/internal/config"
+	"goatway/internal/headers"
 	"goatway/internal/proxy"
 	"goatway/internal/router"
 	"goatway/internal/targetgroup"
+	"goatway/internal/telemetry"
 	"goatway/internal/throttle"
 )
-
-const apiTokenHeader = "X-Goatway-API-Token"
 
 func TestHandler_returns_route_decision_status_when_request_is_rejected(t *testing.T) {
 	tests := []struct {
@@ -35,17 +35,17 @@ func TestHandler_returns_route_decision_status_when_request_is_rejected(t *testi
 		{"no route", func(_ *testing.T, _ *config.Config, request *http.Request) { request.URL.Path = "/missing" }, false, http.StatusNotFound},
 		{"missing token", func(_ *testing.T, _ *config.Config, _ *http.Request) {}, false, http.StatusUnauthorized},
 		{"unknown token", func(_ *testing.T, _ *config.Config, request *http.Request) {
-			request.Header.Set(apiTokenHeader, "unknown")
+			request.Header.Set(headers.APIToken, "unknown")
 		}, false, http.StatusForbidden},
 		{"client not allowed", func(_ *testing.T, _ *config.Config, request *http.Request) {
-			request.Header.Set(apiTokenHeader, "staff-token")
+			request.Header.Set(headers.APIToken, "staff-token")
 		}, false, http.StatusForbidden},
 		{"IP denied", func(_ *testing.T, _ *config.Config, request *http.Request) {
-			request.Header.Set(apiTokenHeader, "public-token")
+			request.Header.Set(headers.APIToken, "public-token")
 			request.RemoteAddr = "192.0.2.1:1234"
 		}, false, http.StatusForbidden},
 		{"invalid development request time", func(_ *testing.T, _ *config.Config, request *http.Request) {
-			request.Header.Set("X-Goatway-Request-Time", "not-rfc3339")
+			request.Header.Set(headers.RequestTime, "not-rfc3339")
 		}, true, http.StatusBadRequest},
 	}
 
@@ -71,7 +71,7 @@ func TestHandler_forwards_rewritten_request_when_route_is_allowed(t *testing.T) 
 	// Given
 	upstream := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		require.Equal(t, "/catalog/42", request.URL.Path)
-		require.NotEmpty(t, request.Header.Get("X-Goatway-Trace-ID"))
+		require.NotEmpty(t, request.Header.Get(headers.TraceID))
 		writer.WriteHeader(http.StatusCreated)
 	}))
 	defer upstream.Close()
@@ -80,7 +80,7 @@ func TestHandler_forwards_rewritten_request_when_route_is_allowed(t *testing.T) 
 	cfg := testConfig(t, host, port)
 	handler := newTestHandler(t, cfg, "public: 1\n", false)
 	request := httptest.NewRequest(http.MethodGet, "/products/42", nil)
-	request.Header.Set(apiTokenHeader, "public-token")
+	request.Header.Set(headers.APIToken, "public-token")
 	request.RemoteAddr = "127.0.0.1:1234"
 	recorder := httptest.NewRecorder()
 
@@ -128,8 +128,11 @@ func TestHandler_writes_single_response_when_upstream_times_out(t *testing.T) {
 	require.Equal(t, http.StatusGatewayTimeout, writer.statuses[0])
 }
 
-func newTestHandler(t *testing.T, cfg *config.Config, limits string, devMode bool) *Handler {
+func newTestHandler(t *testing.T, cfg *config.Config, limits string, devMode bool, options ...Option) http.Handler {
 	t.Helper()
+	runtime, err := telemetry.New(t.Context(), telemetry.Config{})
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, runtime.Shutdown(context.Background())) })
 	registry, err := targetgroup.NewRegistry(cfg.TargetGroups)
 	require.NoError(t, err)
 	routes, err := router.New(*cfg)
@@ -137,12 +140,16 @@ func newTestHandler(t *testing.T, cfg *config.Config, limits string, devMode boo
 	limiter, err := throttle.NewLimiter(writeFile(t, "max_concurrent_requests.yml", limits))
 	require.NoError(t, err)
 	tracker := setThrottleState(t)
-	return NewHandler(
-		cfg, registry, routes, limiter, tracker,
-		WithProxy(proxy.NewHandler()),
+	handlerOptions := []Option{
+		WithProxy(proxy.NewHandler(proxy.WithTelemetry(runtime.TracerProvider(), runtime.TraceContext()))),
 		WithLogger(slog.New(slog.NewTextHandler(io.Discard, nil))),
 		WithDevMode(devMode),
-	)
+	}
+	handlerOptions = append(handlerOptions, options...)
+	return runtime.HTTPHandler(NewHandler(
+		cfg, registry, routes, limiter, tracker,
+		handlerOptions...,
+	))
 }
 
 func testConfig(t *testing.T, host string, port int) *config.Config {
