@@ -136,6 +136,16 @@ func Test_IsOverLimit_returns_article_threshold_decisions(t *testing.T) {
 			trafficWeight:  TrafficWeight{Primary: 90, Canary: 10},
 			want:           false,
 		},
+		{
+			name:           "does not overflow with large maximum and weight",
+			limits:         "premium: 2147483647\n",
+			client:         "premium",
+			count:          21474837,
+			depType:        "primary",
+			instanceCounts: InstanceCounts{Primary: 1, Canary: 1},
+			trafficWeight:  TrafficWeight{Primary: 100, Canary: 0},
+			want:           false,
+		},
 	}
 
 	for _, tt := range tests {

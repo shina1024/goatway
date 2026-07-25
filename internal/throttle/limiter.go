@@ -28,10 +28,16 @@ func NewLimiter(path string) (*Limiter, error) {
 		return nil, fmt.Errorf("parse max concurrent requests file %q: %w", path, err)
 	}
 
+	return NewLimiterFromLimits(limits), nil
+}
+
+// NewLimiterFromLimits creates a limiter from an already-parsed maximums map,
+// avoiding a redundant file read when configuration is already loaded.
+func NewLimiterFromLimits(limits map[string]int) *Limiter {
 	return &Limiter{
 		clientCount:      make(map[string]int),
 		maxConcurrentMap: limits,
-	}, nil
+	}
 }
 
 // Inc records a transfer start and returns the new active count for client.
@@ -84,7 +90,7 @@ func (l *Limiter) IsOverLimit(
 		if instanceCounts.Primary == 0 {
 			return false
 		}
-		threshold := maximum / instanceCounts.Primary
+		threshold := int(int64(maximum) / int64(instanceCounts.Primary))
 		if threshold == 0 {
 			threshold = 1
 		}
@@ -98,7 +104,7 @@ func (l *Limiter) IsOverLimit(
 	if instances == 0 {
 		return false
 	}
-	threshold := maximum * weight / 100 / instances
+	threshold := int(int64(maximum) * int64(weight) / 100 / int64(instances))
 	if threshold == 0 {
 		threshold = 1
 	}
