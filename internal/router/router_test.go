@@ -1,11 +1,13 @@
 package router
 
 import (
+	"net/http"
 	"net/http/httptest"
 	"testing"
 	"time"
 
 	"goatway/internal/config"
+	"goatway/internal/headers"
 
 	"github.com/stretchr/testify/require"
 )
@@ -16,7 +18,7 @@ func TestRouter_Route_rewritesAllDestinations_whenRouteMatches(t *testing.T) {
 		{TargetGroup: "primary", Path: "/$1", Weight: 1},
 		{TargetGroup: "canary", Path: "/canary/$1", Weight: 1},
 	}))
-	req := httptest.NewRequest("GET", "/sample/hoge", nil)
+	req := httptest.NewRequest(http.MethodGet, "/sample/hoge", nil)
 
 	// When
 	match, err := router.Route(req)
@@ -30,7 +32,7 @@ func TestRouter_Route_rewritesAllDestinations_whenRouteMatches(t *testing.T) {
 func TestRouter_Route_returnsNoRoute_whenNoPathMatches(t *testing.T) {
 	// Given
 	router := newTestRouter(t, testRoute("^/sample/(.+)$", nil, nil, testDestinations()))
-	req := httptest.NewRequest("GET", "/other/hoge", nil)
+	req := httptest.NewRequest(http.MethodGet, "/other/hoge", nil)
 
 	// When
 	_, err := router.Route(req)
@@ -47,7 +49,7 @@ func TestRouter_Route_returnsFirstPathMatchAuthError_whenLaterRouteWouldMatch(t 
 	}}
 	router, err := New(configuration)
 	require.NoError(t, err)
-	req := httptest.NewRequest("GET", "/sample", nil)
+	req := httptest.NewRequest(http.MethodGet, "/sample", nil)
 
 	// When
 	_, err = router.Route(req)
@@ -62,7 +64,7 @@ func TestRouter_Route_usesConfiguredWeights_whenDestinationsDiffer(t *testing.T)
 		{TargetGroup: "primary", Path: "/", Weight: 2},
 		{TargetGroup: "canary", Path: "/", Weight: 1},
 	}))
-	req := httptest.NewRequest("GET", "/sample", nil)
+	req := httptest.NewRequest(http.MethodGet, "/sample", nil)
 
 	// When
 	picks := make(map[string]int)
@@ -92,8 +94,8 @@ func TestRouter_Route_returnsAuthErrors_whenRouteRequiresClient(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			// Given
-			req := httptest.NewRequest("GET", "/sample", nil)
-			req.Header.Set("X-Goatway-API-Token", test.token)
+			req := httptest.NewRequest(http.MethodGet, "/sample", nil)
+			req.Header.Set(headers.APIToken, test.token)
 
 			// When
 			_, err := router.Route(req)
@@ -107,7 +109,7 @@ func TestRouter_Route_returnsAuthErrors_whenRouteRequiresClient(t *testing.T) {
 func TestRouter_Route_returnsEmptyClient_whenRouteHasNoClientConstraint(t *testing.T) {
 	// Given
 	router := newTestRouter(t, testRoute("^/sample$", nil, nil, testDestinations()))
-	req := httptest.NewRequest("GET", "/sample", nil)
+	req := httptest.NewRequest(http.MethodGet, "/sample", nil)
 
 	// When
 	match, err := router.Route(req)
@@ -133,7 +135,7 @@ func TestRouter_Route_enforcesIPRanges_whenRouteRequiresThem(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			// Given
-			req := httptest.NewRequest("GET", "/sample", nil)
+			req := httptest.NewRequest(http.MethodGet, "/sample", nil)
 			req.RemoteAddr = test.remote
 
 			// When
@@ -157,7 +159,7 @@ func TestRouter_Route_deniesIP_whenConfiguredRangeGroupsAreEmpty(t *testing.T) {
 	}
 	router, err := New(configuration)
 	require.NoError(t, err)
-	req := httptest.NewRequest("GET", "/sample", nil)
+	req := httptest.NewRequest(http.MethodGet, "/sample", nil)
 
 	// When
 	_, err = router.Route(req)
@@ -183,8 +185,8 @@ func TestWithRequestTimeOverride_usesHeaderOnlyInDevelopment(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			// Given
-			req := httptest.NewRequest("GET", "/sample", nil)
-			req.Header.Set("X-Goatway-Request-Time", test.header)
+			req := httptest.NewRequest(http.MethodGet, "/sample", nil)
+			req.Header.Set(headers.RequestTime, test.header)
 
 			// When
 			updated, err := WithRequestTimeOverride(req, test.devMode)

@@ -4,9 +4,8 @@ import (
 	"net/http"
 
 	"goatway/internal/config"
+	"goatway/internal/headers"
 )
-
-const apiTokenHeader = "X-Goatway-API-Token"
 
 func tokenClients(configured map[config.ClientType][]string) map[string]ClientType {
 	clients := make(map[string]ClientType)
@@ -23,7 +22,7 @@ func (route Route) authorize(request *http.Request, tokens map[string]ClientType
 		return "", nil
 	}
 
-	token := request.Header.Get(apiTokenHeader)
+	token := request.Header.Get(headers.APIToken)
 	if token == "" {
 		return "", ErrMissingToken
 	}
