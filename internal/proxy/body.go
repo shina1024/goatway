@@ -10,13 +10,15 @@ import (
 
 var ErrNilRequest = errors.New("proxy: nil request")
 
+const maxRequestBodySize = 10 << 20 // 10 MiB
+
 // BufferedBody retains a request body so every proxy attempt can open a fresh reader.
 type BufferedBody struct {
 	contents []byte
 }
 
-// BufferRequestBody reads the entire body into memory. It deliberately has no size
-// limit so a future retry can replay every request; callers must enforce limits upstream.
+// BufferRequestBody reads the entire body into memory, rejecting bodies that
+// exceed maxRequestBodySize so a single request cannot exhaust gateway memory.
 func BufferRequestBody(request *http.Request) (BufferedBody, error) {
 	if request == nil {
 		return BufferedBody{}, ErrNilRequest
@@ -24,8 +26,9 @@ func BufferRequestBody(request *http.Request) (BufferedBody, error) {
 	if request.Body == nil {
 		return BufferedBody{}, nil
 	}
-	contents, readErr := io.ReadAll(request.Body)
-	closeErr := request.Body.Close()
+	limited := http.MaxBytesReader(nil, request.Body, maxRequestBodySize)
+	contents, readErr := io.ReadAll(limited)
+	closeErr := limited.Close()
 	if readErr != nil {
 		return BufferedBody{}, fmt.Errorf("read request body: %w", readErr)
 	}

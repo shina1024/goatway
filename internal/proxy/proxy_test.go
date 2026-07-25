@@ -3,6 +3,7 @@ package proxy
 import (
 	"bytes"
 	"context"
+	crand "crypto/rand"
 	"io"
 	"log/slog"
 	"net"
@@ -178,6 +179,16 @@ func TestHandler_ClientFor_reuses_client_for_same_timeout_tuple(t *testing.T) {
 	require.Same(t, first, second)
 }
 
+func TestBufferRequestBody_rejects_body_exceeding_size_limit(t *testing.T) {
+	request := httptest.NewRequest(http.MethodPost, "/", io.LimitReader(crand.Reader, maxRequestBodySize+1))
+	request.ContentLength = maxRequestBodySize + 1
+
+	_, err := BufferRequestBody(request)
+
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "read request body")
+}
+
 func TestBufferRequestBody_opens_fresh_readers(t *testing.T) {
 	// Given
 	request := httptest.NewRequest(http.MethodPost, "/", strings.NewReader("replay me"))
@@ -193,6 +204,36 @@ func TestBufferRequestBody_opens_fresh_readers(t *testing.T) {
 	require.NoError(t, secondErr)
 	require.Equal(t, []byte("replay me"), first)
 	require.Equal(t, first, second)
+}
+
+func TestHandler_Forward_strips_sensitive_headers_from_upstream_request(t *testing.T) {
+	gotAuth := make(chan string, 1)
+	gotCookie := make(chan string, 1)
+	gotRequestTime := make(chan string, 1)
+	backend := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		gotAuth <- request.Header.Get("Authorization")
+		gotCookie <- request.Header.Get("Cookie")
+		gotRequestTime <- request.Header.Get("X-Goatway-Request-Time")
+		writer.WriteHeader(http.StatusOK)
+	}))
+	defer backend.Close()
+	group, target := testTarget(t, backend.URL, time.Second)
+	request := httptest.NewRequest(http.MethodGet, "/", nil)
+	request.Header.Set("Authorization", "Bearer secret-jwt")
+	request.Header.Set("Cookie", "session=abc123")
+	request.Header.Set("X-Goatway-Request-Time", "2026-01-01T00:00:00Z")
+	request.Header.Set("X-Safe-Header", "forwarded")
+
+	_, err := NewHandler().Forward(httptest.NewRecorder(), request, ForwardInput{
+		Target: target,
+		Group:  group,
+		Match:  router.Match{TargetGroupID: "api", RoutedPathMap: map[string]string{"api": "/"}},
+	})
+
+	require.NoError(t, err)
+	require.Empty(t, <-gotAuth)
+	require.Empty(t, <-gotCookie)
+	require.Empty(t, <-gotRequestTime)
 }
 
 func testTarget(t *testing.T, rawURL string, readTimeout time.Duration) (*targetgroup.TargetGroup, targetgroup.Target) {

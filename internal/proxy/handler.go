@@ -230,6 +230,9 @@ func copyEndToEndHeaders(destination, source http.Header) {
 func endToEndHeaders(headers http.Header) http.Header {
 	result := headers.Clone()
 	result.Del(apiTokenHeader)
+	result.Del("Authorization")
+	result.Del("Cookie")
+	result.Del("X-Goatway-Request-Time")
 	connectionValues := result.Values("Connection")
 	for _, name := range []string{"Connection", "Keep-Alive", "Proxy-Authenticate", "Proxy-Authorization", "Proxy-Connection", "Te", "Trailer", "Transfer-Encoding", "Upgrade"} {
 		result.Del(name)
