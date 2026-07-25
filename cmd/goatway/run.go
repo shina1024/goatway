@@ -21,7 +21,10 @@ import (
 	"goatway/internal/throttle"
 )
 
-const shutdownTimeout = 10 * time.Second
+const (
+	shutdownTimeout       = 10 * time.Second
+	maxRequestHeaderBytes = 16 << 10
+)
 
 type telemetryRuntime interface {
 	TracerProvider() trace.TracerProvider
@@ -61,11 +64,12 @@ func productionDependencies() runDependencies {
 		newFileFetcher: func(path string) throttle.Fetcher { return throttle.NewFileFetcher(path) },
 		newServer: func(settings runSettings, handler http.Handler) httpServer {
 			return &http.Server{
-				Addr:         settings.listenAddr,
-				Handler:      handler,
-				ReadTimeout:  5 * time.Second,
-				WriteTimeout: 10 * time.Second,
-				IdleTimeout:  120 * time.Second,
+				Addr:           settings.listenAddr,
+				Handler:        handler,
+				ReadTimeout:    5 * time.Second,
+				WriteTimeout:   10 * time.Second,
+				IdleTimeout:    120 * time.Second,
+				MaxHeaderBytes: maxRequestHeaderBytes,
 			}
 		},
 		poll: func(ctx context.Context, tracker *throttle.DeploymentTracker, fetcher throttle.Fetcher) {
