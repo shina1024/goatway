@@ -82,6 +82,32 @@ func TestHandler_ForwardWithRetry_stops_when_context_is_cancelled_during_backoff
 	require.Zero(t, fallbackCalls.Load())
 }
 
+func TestFullJitter_returns_sub_millisecond_values(t *testing.T) {
+	// Given: a cap below one millisecond
+	cap := 500 * time.Microsecond
+
+	// When: sampling many jittered values
+	seenNonZero := false
+	for range 100 {
+		if fullJitter(cap) > 0 {
+			seenNonZero = true
+			break
+		}
+	}
+
+	// Then: sub-millisecond caps must not always collapse to zero
+	require.True(t, seenNonZero, "fullJitter(%v) returned 0 in 100 samples; sub-ms precision lost", cap)
+}
+
+func TestFullJitter_stays_within_cap(t *testing.T) {
+	cap := 7*time.Millisecond + 300*time.Microsecond
+	for range 200 {
+		got := fullJitter(cap)
+		require.GreaterOrEqual(t, got, time.Duration(0))
+		require.LessOrEqual(t, got, cap)
+	}
+}
+
 func TestHandler_ForwardWithRetry_sleeps_with_full_jitter_between_attempts(t *testing.T) {
 	// Given
 	delays := make([]time.Duration, 0, 2)

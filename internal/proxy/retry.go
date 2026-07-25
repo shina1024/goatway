@@ -186,9 +186,8 @@ func retryBackoffCap(baseInterval, maxInterval time.Duration, tryCount int) time
 }
 
 func fullJitter(cap time.Duration) time.Duration {
-	milliseconds := cap / time.Millisecond
-	if milliseconds <= 0 {
+	if cap <= 0 {
 		return 0
 	}
-	return time.Duration(rand.Int64N(int64(milliseconds)+1)) * time.Millisecond
+	return time.Duration(rand.Int64N(int64(cap) + 1))
 }
