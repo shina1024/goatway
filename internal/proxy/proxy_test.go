@@ -16,22 +16,29 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/require"
+	"go.opentelemetry.io/otel/propagation"
+	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 
 	"goatway/internal/config"
+	"goatway/internal/headers"
 	"goatway/internal/router"
 	"goatway/internal/targetgroup"
 )
 
 func TestHandler_Forward_forwards_rewritten_request_and_copies_response(t *testing.T) {
 	// Given
+	provider := sdktrace.NewTracerProvider()
+	t.Cleanup(func() { require.NoError(t, provider.Shutdown(context.Background())) })
+	requestContext, parent := provider.Tracer("proxy-test").Start(context.Background(), "parent")
+	t.Cleanup(func() { parent.End() })
 	var gotPath, gotQuery, gotHeader, gotTrace, gotBody string
 	gotToken := make(chan string, 1)
 	backend := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		body, err := io.ReadAll(request.Body)
 		require.NoError(t, err)
 		gotPath, gotQuery = request.URL.Path, request.URL.RawQuery
-		gotHeader, gotTrace, gotBody = request.Header.Get("X-Client-Header"), request.Header.Get(traceHeader), string(body)
-		gotToken <- request.Header.Get("X-Goatway-API-Token")
+		gotHeader, gotTrace, gotBody = request.Header.Get("X-Client-Header"), request.Header.Get(headers.TraceID), string(body)
+		gotToken <- request.Header.Get(headers.APIToken)
 		require.Empty(t, request.Header.Get("X-Hop"))
 		writer.Header().Set("X-Upstream-Header", "copied")
 		writer.Header().Set("Connection", "X-Upstream-Hop")
@@ -42,13 +49,13 @@ func TestHandler_Forward_forwards_rewritten_request_and_copies_response(t *testi
 	}))
 	defer backend.Close()
 	group, target := testTarget(t, backend.URL, 100*time.Millisecond)
-	request := httptest.NewRequest(http.MethodPost, "/incoming?keep=this", strings.NewReader("request body"))
+	request := httptest.NewRequest(http.MethodPost, "/incoming?keep=this", strings.NewReader("request body")).WithContext(requestContext)
 	request.Header.Set("X-Client-Header", "forwarded")
-	request.Header.Set("X-Goatway-API-Token", "secret-token")
+	request.Header.Set(headers.APIToken, "secret-token")
 	request.Header.Set("Connection", "X-Hop")
 	request.Header.Set("X-Hop", "removed")
 	recorder := httptest.NewRecorder()
-	handler := NewHandler()
+	handler := NewHandler(WithTelemetry(provider, propagation.TraceContext{}))
 
 	// When
 	result, err := handler.Forward(recorder, request, ForwardInput{
@@ -61,11 +68,10 @@ func TestHandler_Forward_forwards_rewritten_request_and_copies_response(t *testi
 	require.NoError(t, err)
 	require.Equal(t, ErrClassNone, result.ErrClass)
 	require.Equal(t, http.StatusBadGateway, result.StatusCode)
-	require.NotEmpty(t, result.TraceID)
 	require.Equal(t, "/rewritten", gotPath)
 	require.Equal(t, "keep=this", gotQuery)
 	require.Equal(t, "forwarded", gotHeader)
-	require.Equal(t, result.TraceID, gotTrace)
+	require.Equal(t, parent.SpanContext().TraceID().String(), gotTrace)
 	require.Equal(t, "request body", gotBody)
 	require.Empty(t, <-gotToken)
 	require.Equal(t, http.StatusBadGateway, recorder.Code)
@@ -213,7 +219,7 @@ func TestHandler_Forward_strips_sensitive_headers_from_upstream_request(t *testi
 	backend := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		gotAuth <- request.Header.Get("Authorization")
 		gotCookie <- request.Header.Get("Cookie")
-		gotRequestTime <- request.Header.Get("X-Goatway-Request-Time")
+		gotRequestTime <- request.Header.Get(headers.RequestTime)
 		writer.WriteHeader(http.StatusOK)
 	}))
 	defer backend.Close()
@@ -221,7 +227,7 @@ func TestHandler_Forward_strips_sensitive_headers_from_upstream_request(t *testi
 	request := httptest.NewRequest(http.MethodGet, "/", nil)
 	request.Header.Set("Authorization", "Bearer secret-jwt")
 	request.Header.Set("Cookie", "session=abc123")
-	request.Header.Set("X-Goatway-Request-Time", "2026-01-01T00:00:00Z")
+	request.Header.Set(headers.RequestTime, "2026-01-01T00:00:00Z")
 	request.Header.Set("X-Safe-Header", "forwarded")
 
 	_, err := NewHandler().Forward(httptest.NewRecorder(), request, ForwardInput{

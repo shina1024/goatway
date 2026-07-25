@@ -5,7 +5,12 @@ import (
 	"fmt"
 	"math/rand/v2"
 	"net/http"
+	"slices"
 	"time"
+
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
+	"go.opentelemetry.io/otel/trace"
 
 	"goatway/internal/router"
 	"goatway/internal/targetgroup"
@@ -18,9 +23,8 @@ const (
 
 // RetryInput identifies the fetched group and route metadata for a retried transfer.
 type RetryInput struct {
-	Group   *targetgroup.TargetGroup
-	Match   router.Match
-	TraceID string
+	Group *targetgroup.TargetGroup
+	Match router.Match
 }
 
 type retryAttempt struct {
@@ -59,7 +63,7 @@ func (response *bufferedResponse) Write(body []byte) (int, error) {
 }
 
 func (response *bufferedResponse) writeTo(writer http.ResponseWriter) error {
-	copyEndToEndHeaders(writer.Header(), response.header)
+	copyForwardableHeaders(writer.Header(), response.header)
 	writer.WriteHeader(response.statusCode)
 	if _, err := writer.Write(response.body.Bytes()); err != nil {
 		return fmt.Errorf("write selected upstream response: %w", err)
@@ -68,7 +72,36 @@ func (response *bufferedResponse) writeTo(writer http.ResponseWriter) error {
 }
 
 // ForwardWithRetry buffers one request body and retries eligible failures before selecting a response.
-func (handler *Handler) ForwardWithRetry(writer http.ResponseWriter, request *http.Request, input RetryInput) (AttemptResult, error) {
+func (handler *Handler) ForwardWithRetry(writer http.ResponseWriter, request *http.Request, input RetryInput) (result AttemptResult, err error) {
+	transferContext, transfer := handler.clients.telemetry.provider.Tracer("goatway/internal/proxy").Start(
+		request.Context(), "goatway.proxy.transfer", trace.WithSpanKind(trace.SpanKindInternal),
+	)
+	request = request.WithContext(transferContext)
+	attemptCount := 0
+	defer func() {
+		attributes := []attribute.KeyValue{attribute.Int("goatway.proxy.attempt_count", attemptCount)}
+		if input.Group != nil {
+			attributes = append(attributes, attribute.String("goatway.proxy.target_group.id", string(input.Group.ID())))
+		}
+		if input.Match.ClientType != "" {
+			attributes = append(attributes, attribute.String("goatway.proxy.client.type", string(input.Match.ClientType)))
+		}
+		if result.StatusCode != 0 {
+			attributes = append(attributes, attribute.Int("http.response.status_code", result.StatusCode))
+		}
+		if err != nil || result.ErrClass != ErrClassNone || result.StatusCode >= http.StatusInternalServerError {
+			errorType := "other"
+			if result.ErrClass == ErrClassTimeout {
+				errorType = "timeout"
+			} else if err == nil && result.StatusCode >= http.StatusInternalServerError {
+				errorType = "server_error"
+			}
+			attributes = append(attributes, attribute.String("error.type", errorType))
+			transfer.SetStatus(codes.Error, "")
+		}
+		transfer.SetAttributes(attributes...)
+		transfer.End()
+	}()
 	if input.Group == nil {
 		return AttemptResult{ErrClass: ErrClassOther}, ErrNilTargetGroup
 	}
@@ -77,19 +110,17 @@ func (handler *Handler) ForwardWithRetry(writer http.ResponseWriter, request *ht
 		return AttemptResult{ErrClass: ClassifyError(err)}, err
 	}
 	attempts := retrySchedule(input.Group, request.Method)
-	traceID := input.TraceID
 	for index, planned := range attempts {
+		attemptCount++
 		response := newBufferedResponse()
 		result, attemptErr := handler.ForwardBuffered(response, request, BufferedAttempt{
 			Input: ForwardInput{
-				Target:  planned.target,
-				Group:   planned.group,
-				Match:   input.Match,
-				TraceID: traceID,
+				Target: planned.target,
+				Group:  planned.group,
+				Match:  input.Match,
 			},
 			Body: body,
 		})
-		traceID = result.TraceID
 		if retryable(planned.group, result, attemptErr) && index+1 < len(attempts) {
 			next := attempts[index+1]
 			delay := fullJitter(retryBackoffCap(next.group.RetryBaseInterval(), next.group.RetryMaxInterval(), index+1))
@@ -153,12 +184,7 @@ func retryable(group *targetgroup.TargetGroup, result AttemptResult, attemptErr 
 	} else if result.StatusCode >= http.StatusInternalServerError && result.StatusCode < 600 {
 		retryCase = targetgroup.RetryCaseServerError
 	}
-	for _, configured := range group.RetryCases() {
-		if configured == retryCase {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(group.RetryCases(), retryCase)
 }
 
 func retryBackoffCap(baseInterval, maxInterval time.Duration, tryCount int) time.Duration {

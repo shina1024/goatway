@@ -3,29 +3,25 @@ package proxy
 
 import (
 	"context"
-	"crypto/rand"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
 	"log/slog"
 	"net"
 	"net/http"
-	"net/textproto"
+	"net/http/httputil"
 	"net/url"
 	"os"
 	"strings"
 	"time"
 
+	"goatway/internal/headers"
 	"goatway/internal/router"
 	"goatway/internal/targetgroup"
+	"goatway/internal/telemetry"
 )
 
-const (
-	traceHeader        = "X-Goatway-Trace-ID"
-	apiTokenHeader     = "X-Goatway-API-Token"
-	clientClosedStatus = 460
-)
+const clientClosedStatus = 460
 
 var (
 	ErrNilTargetGroup   = errors.New("proxy: nil target group")
@@ -44,16 +40,14 @@ const (
 // AttemptResult describes the single upstream attempt without making a retry decision.
 type AttemptResult struct {
 	StatusCode int
-	TraceID    string
 	ErrClass   ErrClass
 }
 
 // ForwardInput identifies one target and the route metadata used to build its request.
 type ForwardInput struct {
-	Target  targetgroup.Target
-	Group   *targetgroup.TargetGroup
-	Match   router.Match
-	TraceID string
+	Target targetgroup.Target
+	Group  *targetgroup.TargetGroup
+	Match  router.Match
 }
 
 // BufferedAttempt combines one route selection with a replayable request body.
@@ -104,7 +98,7 @@ type Handler struct {
 // NewHandler creates a single-attempt forwarder using slog.Default unless overridden.
 func NewHandler(options ...Option) *Handler {
 	handler := &Handler{
-		clients:     clientCache{clients: make(map[clientKey]*http.Client)},
+		clients:     newClientCache(),
 		logger:      slog.Default(),
 		retryWaiter: waitForRetry,
 	}
@@ -152,22 +146,15 @@ func (handler *Handler) ForwardBuffered(writer http.ResponseWriter, request *htt
 	if !exists {
 		return AttemptResult{ErrClass: ErrClassOther}, fmt.Errorf("target group %q: %w", input.Group.ID(), ErrMissingRoutePath)
 	}
-	traceID := input.TraceID
-	if traceID == "" {
-		var err error
-		traceID, err = newTraceID()
-		if err != nil {
-			return AttemptResult{ErrClass: ErrClassOther}, fmt.Errorf("create trace ID: %w", err)
-		}
-	}
-	result := AttemptResult{TraceID: traceID}
+	result := AttemptResult{}
 	endpoint := &url.URL{Scheme: input.Target.Scheme(), Host: input.Target.Address(), Path: rewrittenPath, RawQuery: request.URL.RawQuery}
 	outbound, err := http.NewRequestWithContext(request.Context(), request.Method, endpoint.String(), attempt.Body.Open())
 	if err != nil {
 		return handler.failed(request.Context(), result, "build upstream request", err)
 	}
-	outbound.Header = endToEndHeaders(request.Header)
-	outbound.Header.Set(traceHeader, traceID)
+	outbound.Header = filteredRequestHeaders(request.Header)
+	(&httputil.ProxyRequest{In: request, Out: outbound}).SetXForwarded()
+	outbound.Header.Set(headers.TraceID, telemetry.TraceID(request.Context()))
 	outbound.ContentLength = int64(len(attempt.Body.contents))
 	response, err := handler.ClientFor(input.Target, input.Group.MaxIdleConnsPerHost()).Do(outbound)
 	if err != nil {
@@ -181,7 +168,7 @@ func (handler *Handler) ForwardBuffered(writer http.ResponseWriter, request *htt
 	if err := request.Context().Err(); err != nil {
 		return handler.failed(request.Context(), result, "write response after client disconnect", err)
 	}
-	copyEndToEndHeaders(writer.Header(), response.Header)
+	copyForwardableHeaders(writer.Header(), filteredResponseHeaders(response.Header))
 	writer.WriteHeader(response.StatusCode)
 	if _, err := writer.Write(responseBody); err != nil {
 		return handler.failed(request.Context(), result, "write upstream response", err)
@@ -208,39 +195,57 @@ func ClassifyError(err error) ErrClass {
 func (handler *Handler) failed(ctx context.Context, result AttemptResult, operation string, err error) (AttemptResult, error) {
 	result.ErrClass = ClassifyError(err)
 	if errors.Is(ctx.Err(), context.Canceled) {
-		handler.logger.WarnContext(ctx, "proxy client disconnected", slog.Int("status", clientClosedStatus), slog.String("trace_id", result.TraceID), slog.Any("err", err))
+		handler.logger.WarnContext(ctx, "proxy client disconnected", slog.Int("status", clientClosedStatus), slog.String("trace_id", telemetry.TraceID(ctx)), slog.Any("err", err))
 	}
 	return result, fmt.Errorf("%s: %w", operation, err)
 }
 
-func newTraceID() (string, error) {
-	bytes := make([]byte, 16)
-	if _, err := rand.Read(bytes); err != nil {
-		return "", err
-	}
-	return hex.EncodeToString(bytes), nil
-}
-
-func copyEndToEndHeaders(destination, source http.Header) {
-	for name, values := range endToEndHeaders(source) {
+func copyForwardableHeaders(destination, source http.Header) {
+	for name, values := range source {
 		destination[name] = append([]string(nil), values...)
 	}
 }
 
-func endToEndHeaders(headers http.Header) http.Header {
-	result := headers.Clone()
-	result.Del(apiTokenHeader)
-	result.Del("Authorization")
-	result.Del("Cookie")
-	result.Del("X-Goatway-Request-Time")
-	connectionValues := result.Values("Connection")
-	for _, name := range []string{"Connection", "Keep-Alive", "Proxy-Authenticate", "Proxy-Authorization", "Proxy-Connection", "Te", "Trailer", "Transfer-Encoding", "Upgrade"} {
-		result.Del(name)
-	}
-	for _, value := range connectionValues {
-		for _, name := range strings.Split(value, ",") {
-			result.Del(textproto.CanonicalMIMEHeaderKey(strings.TrimSpace(name)))
+func filteredRequestHeaders(header http.Header) http.Header {
+	result := withoutHopByHopHeaders(header)
+	removeHeaders(result, headers.APIToken, "Authorization", "Cookie", headers.RequestTime, headers.TraceID, "traceparent", "tracestate", "baggage", "Forwarded")
+	for name := range result {
+		if strings.HasPrefix(strings.ToLower(name), "x-forwarded-") {
+			delete(result, name)
 		}
 	}
 	return result
+}
+
+func filteredResponseHeaders(header http.Header) http.Header {
+	result := withoutHopByHopHeaders(header)
+	removeHeaders(result, "Set-Cookie", headers.TraceID, "traceparent", "tracestate", "baggage")
+	return result
+}
+
+func withoutHopByHopHeaders(header http.Header) http.Header {
+	result := header.Clone()
+	var connectionValues []string
+	for name, values := range result {
+		if strings.EqualFold(name, "Connection") {
+			connectionValues = append(connectionValues, values...)
+		}
+	}
+	removeHeaders(result, "Connection", "Keep-Alive", "Proxy-Authenticate", "Proxy-Authorization", "Proxy-Connection", "TE", "Trailer", "Transfer-Encoding", "Upgrade")
+	for _, value := range connectionValues {
+		for name := range strings.SplitSeq(value, ",") {
+			removeHeaders(result, strings.TrimSpace(name))
+		}
+	}
+	return result
+}
+
+func removeHeaders(header http.Header, names ...string) {
+	for _, name := range names {
+		for existingName := range header {
+			if strings.EqualFold(existingName, name) {
+				delete(header, existingName)
+			}
+		}
+	}
 }
