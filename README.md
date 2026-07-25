@@ -14,7 +14,7 @@ goatway is a lightweight gateway that handles:
 - Automatic retry (intra-group and cross-group)
 - Backoff with full jitter
 - Timeouts (connect / read / idle)
-- Trace ID generation and propagation
+- Vendor-neutral OpenTelemetry tracing and W3C Trace Context propagation
 - Client-disconnect detection (460)
 - Development request-time override
 - Per-client concurrent-request throttling with primary/canary pod-aware thresholds
@@ -31,7 +31,7 @@ goatway is a lightweight gateway that handles:
 | Retry basics (retry cases: `server_error`, `timeout`) | [Intro](https://techblog.zozo.com/entry/zozotown-api-gateway-intro) | `internal/proxy/retry.go` |
 | Backoff & jitter | [Intro](https://techblog.zozo.com/entry/zozotown-api-gateway-intro) | `internal/proxy/retry.go` (`retryBackoffCap`, `fullJitter`) |
 | Timeouts (connect / read / idle) | [Intro](https://techblog.zozo.com/entry/zozotown-api-gateway-intro) | `internal/proxy/client.go` + `internal/config/defaults.go` |
-| Trace ID generation & propagation | [Intro](https://techblog.zozo.com/entry/zozotown-api-gateway-intro) | `internal/proxy/handler.go` + `internal/gateway/handler.go` |
+| Gateway-issued trace correlation (implemented with OpenTelemetry here) | [Intro](https://techblog.zozo.com/entry/zozotown-api-gateway-intro) | `internal/telemetry/` + `internal/gateway/handler.go` + `internal/proxy/` |
 | 460 (client disconnect) | [Intro](https://techblog.zozo.com/entry/zozotown-api-gateway-intro) | `internal/proxy/handler.go` (`failed` method) |
 | Development request-time override | [Intro](https://techblog.zozo.com/entry/zozotown-api-gateway-intro) | `internal/router/requesttime.go` |
 | Weighted round-robin scheduler internals | [Availability](https://techblog.zozo.com/entry/zozotown-api-gateway-availability) | `internal/scheduler/scheduler.go` |
@@ -41,6 +41,8 @@ goatway is a lightweight gateway that handles:
 | Concurrent request limiting | [Throttling](https://techblog.zozo.com/entry/zozotown-api-gateway-throttling) | `internal/throttle/limiter.go` |
 | Degradation (fetch-failure fallback) | [Throttling](https://techblog.zozo.com/entry/zozotown-api-gateway-throttling) | `internal/throttle/poller.go` (`FallbackThreshold`) |
 | FileFetcher (replaces K8s / Istio) | [Throttling](https://techblog.zozo.com/entry/zozotown-api-gateway-throttling) | `internal/throttle/fetcher.go` |
+
+The Intro article describes a gateway-issued trace ID and Datadog APM as separate operational choices. It does not prescribe OpenTelemetry, W3C Trace Context, or the header policies below. This repository adapts the correlation requirement with vendor-neutral OpenTelemetry APIs and an optional OTLP Collector.
 
 ## Getting Started
 
@@ -56,7 +58,6 @@ import ("fmt"; "net/http")
 func main() {
     handler := func(port string) http.HandlerFunc {
         return func(w http.ResponseWriter, r *http.Request) {
-            w.Header().Set("X-Goatway-Trace-ID", r.Header.Get("X-Goatway-Trace-ID"))
             fmt.Fprintf(w, "hello from %s path=%s\n", port, r.URL.Path)
         }
     }
@@ -83,16 +84,26 @@ $env:GOATWAY_LISTEN_ADDR = ":8080"
 $env:GOATWAY_ENV = "dev"          # text logs when dev, JSON otherwise
 ```
 
+Tracing works without an exporter. To export spans, point goatway at an OTLP/gRPC endpoint, normally an OpenTelemetry Collector:
+
+```powershell
+$env:OTEL_EXPORTER_OTLP_TRACES_ENDPOINT = "http://127.0.0.1:4317"
+$env:OTEL_EXPORTER_OTLP_TRACES_PROTOCOL = "grpc"
+go run ./cmd/goatway
+```
+
+`OTEL_EXPORTER_OTLP_ENDPOINT` and `OTEL_EXPORTER_OTLP_PROTOCOL` are supported as fallbacks. Only the `grpc` protocol is accepted. With no endpoint, goatway still creates server, transfer, and client spans for trace correlation but exports nothing. The Collector configuration selects the backend, such as Tempo, Jaeger, or Datadog; goatway contains no vendor SDK dependency.
+
 ### 3. Stop
 
-Press `Ctrl+C` for graceful shutdown (10-second drain window).
+Press `Ctrl+C` for graceful shutdown. Goatway first gives HTTP requests up to 10 seconds to drain, then stops the deployment poller, then gives telemetry up to 10 seconds to flush and shut down.
 
 ## curl Verification Examples
 
 ### 200 with token authentication
 
 ```powershell
-curl -i http://127.0.0.1:8080/sample/hello -H "X-Goatway-API-Token: abcde12345"
+curl -i http://127.0.0.1:8080/sample/hello -H "Goatway-API-Token: abcde12345"
 ```
 
 ### 401 without token
@@ -104,22 +115,44 @@ curl -i http://127.0.0.1:8080/sample/hello
 ### 403 with invalid token
 
 ```powershell
-curl -i http://127.0.0.1:8080/sample/hello -H "X-Goatway-API-Token: invalid"
+curl -i http://127.0.0.1:8080/sample/hello -H "Goatway-API-Token: invalid"
 ```
 
 ### 404 on unknown path
 
 ```powershell
-curl -i http://127.0.0.1:8080/notfound -H "X-Goatway-API-Token: abcde12345"
+curl -i http://127.0.0.1:8080/notfound -H "Goatway-API-Token: abcde12345"
 ```
 
 ### Trace ID propagation
 
 ```powershell
-curl -i http://127.0.0.1:8080/sample/hello -H "X-Goatway-API-Token: abcde12345" -H "X-Goatway-Trace-ID: my-trace-123"
+curl -i http://127.0.0.1:8080/sample/hello `
+  -H "Goatway-API-Token: abcde12345" `
+  -H "traceparent: 00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01" `
+  -H "tracestate: vendor=example"
 ```
 
-The gateway always adds `X-Goatway-Trace-ID` to the upstream request. A response contains that header only when the backend echoes it, as the example backend does. Gateway logs also carry the propagated ID.
+The response `Goatway-Trace-ID` is `4bf92f3577b34da6a3ce929d0e0e4736`, the active OpenTelemetry TraceID. The upstream receives the same `Goatway-Trace-ID` plus a child `traceparent`; logs use that same identity. If the incoming `traceparent` is missing or invalid, the server span creates a new TraceID. A client-supplied `Goatway-Trace-ID` is never trusted.
+
+The gateway installs its authoritative response trace header before routing, authentication, throttling, or proxying, so local 4xx/429/5xx responses also carry it. A backend cannot replace it.
+
+## Header Trust Policy
+
+Header handling is directional rather than a shared allowlist:
+
+| Header | Incoming request | Upstream request / downstream response |
+|---|---|---|
+| `Goatway-API-Token` | Used for route authentication | Stripped before proxying |
+| `Authorization`, `Cookie` | Not used by the gateway | Stripped before proxying |
+| `Goatway-Request-Time` | Used only for the development override | Stripped before proxying |
+| `Goatway-Trace-ID` | Client value ignored | Set from the active OTel TraceID upstream and on every gateway response; backend value stripped |
+| `traceparent`, `tracestate` | Extracted by the server TraceContext propagator | Raw values removed, then the current client span context is injected upstream; backend response values stripped |
+| `baggage` | Not propagated | Stripped in both directions |
+| `Forwarded`, `X-Forwarded-*` | Treated as untrusted | Removed, then `X-Forwarded-For`, `X-Forwarded-Host`, and `X-Forwarded-Proto` are rebuilt from the direct connection for each attempt |
+| `Set-Cookie` | Not applicable | Stripped from upstream responses |
+
+Other hop-by-hop headers are removed in both directions. Trusted-proxy interpretation is intentionally not implemented.
 
 ### 429 (throttling) demo
 
@@ -127,17 +160,17 @@ Lower the value in `config/max_concurrent_requests.yml` and fire overlapping req
 
 ```powershell
 # Example: set SampleClient: 1, then fire 2 requests at once
-1..2 | ForEach-Object { Start-Job { curl -s -o NUL http://127.0.0.1:8080/sample/hello -H "X-Goatway-API-Token: abcde12345" } }
+1..2 | ForEach-Object { Start-Job { curl -s -o NUL http://127.0.0.1:8080/sample/hello -H "Goatway-API-Token: abcde12345" } }
 ```
 
 ### Development request-time override
 
-When `GOATWAY_ENV=dev`, you can override the request timestamp with `X-Goatway-Request-Time`:
+When `GOATWAY_ENV=dev`, you can override the request timestamp with `Goatway-Request-Time`:
 
 ```powershell
 $env:GOATWAY_ENV = "dev"
 go run ./cmd/goatway
-curl -i http://127.0.0.1:8080/sample/hello -H "X-Goatway-API-Token: abcde12345" -H "X-Goatway-Request-Time: 2026-01-01T00:00:00Z"
+curl -i http://127.0.0.1:8080/sample/hello -H "Goatway-API-Token: abcde12345" -H "Goatway-Request-Time: 2026-01-01T00:00:00Z"
 ```
 
 ## Configuration Reference
@@ -217,7 +250,7 @@ Deployment state read by `FileFetcher`. Replaces Kubernetes and Istio with a loc
 The following are mentioned in the articles but omitted or replaced in this repository:
 
 - **Member authentication**: Mentioned in the articles but not implemented in this codebase
-- **AWS Secrets Manager / Athena / Datadog / Sentry / PagerDuty / EKS**: Operational infrastructure integrations
+- **AWS Secrets Manager / Athena / Datadog SDK / Sentry / PagerDuty / EKS**: Operational infrastructure integrations. A separately configured OTLP Collector may still export traces to Datadog or another backend
 - **TLS termination and production hardening**: The example server is plain HTTP and is not a production edge gateway
 - **Trusted proxy support**: IP restrictions use `RemoteAddr` directly. `Forwarded` and `X-Forwarded-For` are intentionally ignored, so deploy behind a proxy only after adding an explicit trusted-proxy model
 - **Real Kubernetes / Istio clients**: Deployment state is read from a local YAML file instead
@@ -250,7 +283,7 @@ On Windows, `-race` requires a GCC-compatible compiler and may not be available 
 
 ```
 .
-├── cmd/goatway/main.go          # Entrypoint (wiring only)
+├── cmd/goatway/                 # Entrypoint and owned server lifecycle
 ├── config/                      # Example configuration files
 │   ├── target_groups.yml
 │   ├── routes.yml
@@ -266,6 +299,7 @@ On Windows, `-race` requires a GCC-compatible compiler and may not be available 
 │   ├── router/                  # Routing, auth, IP restrictions
 │   ├── scheduler/               # Weighted round-robin
 │   ├── targetgroup/             # Target groups & registry
+│   ├── telemetry/               # OTel provider, TraceContext, and optional OTLP exporter
 │   └── throttle/                # Throttling & deployment-state fetching
 ├── go.mod
 └── README.md
