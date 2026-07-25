@@ -14,6 +14,13 @@ import (
 	"go.opentelemetry.io/otel/trace"
 )
 
+const (
+	spanAttributeValueLengthLimit   = 128
+	spanAttributeCountLimit         = 32
+	spanProcessorMaxQueueSize       = 128
+	spanProcessorMaxExportBatchSize = 32
+)
+
 type exporterFactory func(context.Context, Config) (sdktrace.SpanExporter, error)
 
 // Runtime owns the OpenTelemetry tracing provider and propagation settings.
@@ -38,16 +45,24 @@ func newRuntime(ctx context.Context, config Config, createExporter exporterFacto
 		return nil, err
 	}
 
+	spanLimits := sdktrace.NewSpanLimits()
+	spanLimits.AttributeValueLengthLimit = spanAttributeValueLengthLimit
+	spanLimits.AttributeCountLimit = spanAttributeCountLimit
 	options := []sdktrace.TracerProviderOption{
 		sdktrace.WithSampler(sdktrace.ParentBased(sdktrace.AlwaysSample())),
 		sdktrace.WithResource(res),
+		sdktrace.WithRawSpanLimits(spanLimits),
 	}
 	if config.Endpoint != "" {
 		exporter, err := createExporter(ctx, config)
 		if err != nil {
 			return nil, fmt.Errorf("create OTLP trace exporter: %w", err)
 		}
-		options = append(options, sdktrace.WithBatcher(exporter))
+		options = append(options, sdktrace.WithBatcher(
+			exporter,
+			sdktrace.WithMaxQueueSize(spanProcessorMaxQueueSize),
+			sdktrace.WithMaxExportBatchSize(spanProcessorMaxExportBatchSize),
+		))
 	}
 
 	return &Runtime{
