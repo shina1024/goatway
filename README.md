@@ -8,13 +8,13 @@ It is designed for local study and verification, not production deployment.
 goatway is a lightweight gateway that handles:
 
 - Reverse proxy (HTTP upstream forwarding)
-- Regex-based routing
+- Regex-based routing and path rewriting
 - Weighted round-robin / canary traffic splitting
 - API token authentication + IP range restrictions
 - Automatic retry (intra-group and cross-group)
 - Backoff with full jitter
 - Timeouts (connect / read / idle)
-- Vendor-neutral OpenTelemetry tracing and W3C Trace Context propagation
+- Gateway-issued trace correlation, implemented with OpenTelemetry in goatway
 - Client-disconnect detection (460)
 - Development request-time override
 - Per-client concurrent-request throttling with primary/canary pod-aware thresholds
@@ -24,14 +24,14 @@ goatway is a lightweight gateway that handles:
 | Feature | Article | Code Location |
 |---|---|---|
 | Reverse proxy | [Intro](https://techblog.zozo.com/entry/zozotown-api-gateway-intro) | `internal/proxy/handler.go` |
-| Routing (regex match) | [Intro](https://techblog.zozo.com/entry/zozotown-api-gateway-intro) | `internal/router/matcher.go` |
-| Weighted round-robin / canary traffic splitting | [Intro](https://techblog.zozo.com/entry/zozotown-api-gateway-intro) | `internal/router/matcher.go` + `config/routes.yml` (commented example) |
+| Routing (regex match and path rewrite) | [Intro](https://techblog.zozo.com/entry/zozotown-api-gateway-intro) | `internal/router/matcher.go` |
+| Weighted round-robin / canary traffic splitting | [Availability](https://techblog.zozo.com/entry/zozotown-api-gateway-availability) | `internal/router/matcher.go` + `config/routes.yml` (commented example) |
 | API token authentication | [Intro](https://techblog.zozo.com/entry/zozotown-api-gateway-intro) | `internal/router/auth.go` |
 | IP range restrictions | [Intro](https://techblog.zozo.com/entry/zozotown-api-gateway-intro) | `internal/router/iprange.go` |
 | Retry basics (retry cases: `server_error`, `timeout`) | [Intro](https://techblog.zozo.com/entry/zozotown-api-gateway-intro) | `internal/proxy/retry.go` |
 | Backoff & jitter | [Intro](https://techblog.zozo.com/entry/zozotown-api-gateway-intro) | `internal/proxy/retry.go` (`retryBackoffCap`, `fullJitter`) |
 | Timeouts (connect / read / idle) | [Intro](https://techblog.zozo.com/entry/zozotown-api-gateway-intro) | `internal/proxy/client.go` + `internal/config/defaults.go` |
-| Gateway-issued trace correlation (implemented with OpenTelemetry here) | [Intro](https://techblog.zozo.com/entry/zozotown-api-gateway-intro) | `internal/telemetry/` + `internal/gateway/handler.go` + `internal/proxy/` |
+| Gateway-issued trace ID | [Intro](https://techblog.zozo.com/entry/zozotown-api-gateway-intro) | `internal/gateway/handler.go` + `internal/proxy/handler.go` |
 | 460 (client disconnect) | [Intro](https://techblog.zozo.com/entry/zozotown-api-gateway-intro) | `internal/proxy/handler.go` (`failed` method) |
 | Development request-time override | [Intro](https://techblog.zozo.com/entry/zozotown-api-gateway-intro) | `internal/router/requesttime.go` |
 | Weighted round-robin scheduler internals | [Availability](https://techblog.zozo.com/entry/zozotown-api-gateway-availability) | `internal/scheduler/scheduler.go` |
@@ -40,9 +40,21 @@ goatway is a lightweight gateway that handles:
 | Throttling (`IsOverLimit` formula) | [Throttling](https://techblog.zozo.com/entry/zozotown-api-gateway-throttling) | `internal/throttle/limiter.go` |
 | Concurrent request limiting | [Throttling](https://techblog.zozo.com/entry/zozotown-api-gateway-throttling) | `internal/throttle/limiter.go` |
 | Degradation (fetch-failure fallback) | [Throttling](https://techblog.zozo.com/entry/zozotown-api-gateway-throttling) | `internal/throttle/poller.go` (`FallbackThreshold`) |
-| FileFetcher (replaces K8s / Istio) | [Throttling](https://techblog.zozo.com/entry/zozotown-api-gateway-throttling) | `internal/throttle/fetcher.go` |
 
-The Intro article describes a gateway-issued trace ID and Datadog APM as separate operational choices. It does not prescribe OpenTelemetry, W3C Trace Context, or the header policies below. This repository adapts the correlation requirement with vendor-neutral OpenTelemetry APIs and an optional OTLP Collector.
+## Article Fidelity and Local Adaptations
+
+The table above lists behavior described by the ZOZO articles. Goatway follows those application-level designs where they can be reproduced locally, while replacing ZOZOTOWN-specific infrastructure and vendor integrations:
+
+| Area | ZOZO articles | Goatway adaptation |
+|---|---|---|
+| Trace correlation | The gateway issues a trace ID and adds it to the upstream request. The Intro article also describes Datadog APM issuing its own trace ID | One OpenTelemetry TraceID is used for the gateway response, logs, and upstream request. W3C `traceparent`/`tracestate` and optional OTLP/gRPC export are goatway additions |
+| Header names | The articles describe custom headers for the API token, trace ID, and development request-time override without defining the names used by this repository | `Goatway-API-Token`, `Goatway-Trace-ID`, and `Goatway-Request-Time` are local names |
+| Request forwarding | The articles do not define Cookie, Baggage, `Forwarded`, or `X-Forwarded-*` policies | Goatway applies the explicit forwarding rules documented below |
+| Secrets and platform services | AWS Secrets Manager, Kubernetes, Istio, and operational SaaS products are used in the production system | Public YAML test data, local files, and an optional external OTel Collector replace those dependencies |
+| Deployment state | Throttling uses Kubernetes/Istio deployment and traffic state | `FileFetcher` reads `deployment.yml` |
+| Mocks and verification | Prism and nginx are used in the described development environment | `httptest` and simple local backends are used |
+
+OpenTelemetry, W3C Trace Context, OTLP, and the forwarding rules are not claims about the source articles. They are vendor-neutral or security-focused choices made by goatway while preserving the article's gateway behavior.
 
 ## Getting Started
 
@@ -84,7 +96,7 @@ $env:GOATWAY_LISTEN_ADDR = ":8080"
 $env:GOATWAY_ENV = "dev"          # text logs when dev, JSON otherwise
 ```
 
-Tracing works without an exporter. To export spans, point goatway at an OTLP/gRPC endpoint, normally an OpenTelemetry Collector:
+As a goatway-specific observability adaptation, tracing works without an exporter. To export spans, point goatway at an OTLP/gRPC endpoint, normally an OpenTelemetry Collector:
 
 ```powershell
 $env:OTEL_EXPORTER_OTLP_TRACES_ENDPOINT = "http://127.0.0.1:4317"
@@ -124,7 +136,7 @@ curl -i http://127.0.0.1:8080/sample/hello -H "Goatway-API-Token: invalid"
 curl -i http://127.0.0.1:8080/notfound -H "Goatway-API-Token: abcde12345"
 ```
 
-### Trace ID propagation
+### Trace ID propagation (goatway OpenTelemetry adaptation)
 
 ```powershell
 curl -i http://127.0.0.1:8080/sample/hello `
@@ -137,22 +149,22 @@ The response `Goatway-Trace-ID` is `4bf92f3577b34da6a3ce929d0e0e4736`, the activ
 
 The gateway installs its authoritative response trace header before routing, authentication, throttling, or proxying, so local 4xx/429/5xx responses also carry it. A backend cannot replace it.
 
-## Header Trust Policy
+## Goatway Request Forwarding Rules
 
-Header handling is directional rather than a shared allowlist:
+The ZOZO articles do not prescribe these rules. Goatway handles request and response headers directionally rather than using one shared allowlist:
 
-| Header | Incoming request | Upstream request / downstream response |
-|---|---|---|
-| `Goatway-API-Token` | Used for route authentication | Stripped before proxying |
-| `Authorization`, `Cookie` | Not used by the gateway | Stripped before proxying |
-| `Goatway-Request-Time` | Used only for the development override | Stripped before proxying |
-| `Goatway-Trace-ID` | Client value ignored | Set from the active OTel TraceID upstream and on every gateway response; backend value stripped |
-| `traceparent`, `tracestate` | Extracted by the server TraceContext propagator | Raw values removed, then the current client span context is injected upstream; backend response values stripped |
-| `baggage` | Not propagated | Stripped in both directions |
-| `Forwarded`, `X-Forwarded-*` | Treated as untrusted | Removed, then `X-Forwarded-For`, `X-Forwarded-Host`, and `X-Forwarded-Proto` are rebuilt from the direct connection for each attempt |
-| `Set-Cookie` | Not applicable | Stripped from upstream responses |
+| Header | Incoming request handling | Forwarded upstream | Gateway response handling |
+|---|---|---|---|
+| `Goatway-API-Token` | Used for route authentication | Stripped | No special response rule |
+| `Authorization`, `Cookie` | Not used by the gateway | Stripped | No special response rule |
+| `Goatway-Request-Time` | Used only for the development override | Stripped | No special response rule |
+| `Goatway-Trace-ID` | Client value ignored | Set from the active OTel TraceID | Gateway value is authoritative; backend value is stripped |
+| `traceparent`, `tracestate` | Extracted by the server TraceContext propagator | Raw values are removed, then the current client span context is injected | Backend values are stripped |
+| `baggage` | Not propagated | Stripped | Stripped |
+| `Forwarded`, `X-Forwarded-*` | Treated as untrusted | Removed, then `X-Forwarded-For`, `X-Forwarded-Host`, and `X-Forwarded-Proto` are rebuilt from the direct connection for each attempt | Not special-cased; backend response values pass through as ordinary end-to-end headers |
+| `Set-Cookie` | Not applicable | Not applicable | Stripped from upstream responses |
 
-Other hop-by-hop headers are removed in both directions. Trusted-proxy interpretation is intentionally not implemented.
+Hop-by-hop headers are removed in both directions. Trusted-proxy interpretation is intentionally not implemented. Forwarding-header rebuilding applies to upstream requests only; response headers are never used as client identity by goatway.
 
 ### 429 (throttling) demo
 
@@ -165,7 +177,7 @@ Lower the value in `config/max_concurrent_requests.yml` and fire overlapping req
 
 ### Development request-time override
 
-When `GOATWAY_ENV=dev`, you can override the request timestamp with `Goatway-Request-Time`:
+When `GOATWAY_ENV=dev`, you can override the request timestamp with the goatway-specific `Goatway-Request-Time` header:
 
 ```powershell
 $env:GOATWAY_ENV = "dev"
