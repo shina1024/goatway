@@ -51,11 +51,11 @@ func main() {
 		os.Exit(1)
 	}
 
-	limiter, err := throttle.NewLimiter(filepath.Join(*configDir, "max_concurrent_requests.yml"))
-	if err != nil {
-		logger.Error("failed to build throttle limiter", slog.Any("err", err))
-		os.Exit(1)
+	limits := make(map[string]int, len(cfg.MaxConcurrentRequests))
+	for client, maximum := range cfg.MaxConcurrentRequests {
+		limits[string(client)] = maximum
 	}
+	limiter := throttle.NewLimiterFromLimits(limits)
 
 	tracker := throttle.NewDeploymentTracker()
 	if err := tracker.SetDepType(); err != nil {
@@ -68,7 +68,8 @@ func main() {
 	defer cancel()
 	go tracker.Poll(ctx, fetcher, time.Second)
 
-	handler := gateway.NewHandler(cfg, registry, routes, limiter, tracker, gateway.WithLogger(logger))
+	devMode := os.Getenv("GOATWAY_ENV") == "dev"
+	handler := gateway.NewHandler(cfg, registry, routes, limiter, tracker, gateway.WithLogger(logger), gateway.WithDevMode(devMode))
 
 	server := &http.Server{
 		Addr:         *listenAddr,
