@@ -19,12 +19,13 @@ import (
 
 	"goatway/internal/config"
 	"goatway/internal/gateway"
+	"goatway/internal/headers"
+	"goatway/internal/proxy"
 	"goatway/internal/router"
 	"goatway/internal/targetgroup"
+	"goatway/internal/telemetry"
 	"goatway/internal/throttle"
 )
-
-const tokenHeader = "X-Goatway-API-Token"
 
 type fixture struct {
 	targetGroups string
@@ -55,6 +56,9 @@ func newGateway(t *testing.T, value fixture) *httptest.Server {
 	require.NoError(t, err)
 	tracker := throttle.NewDeploymentTracker()
 	require.NoError(t, tracker.SetDepType())
+	runtime, err := telemetry.New(t.Context(), telemetry.Config{})
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, runtime.Shutdown(context.Background())) })
 	ctx, cancel := context.WithTimeout(t.Context(), time.Second)
 	t.Cleanup(cancel)
 	updated := make(chan struct{}, 1)
@@ -71,9 +75,10 @@ func newGateway(t *testing.T, value fixture) *httptest.Server {
 	receive(t, done, "throttle poller did not stop")
 	handler := gateway.NewHandler(
 		cfg, registry, routes, limiter, tracker,
+		gateway.WithProxy(proxy.NewHandler(proxy.WithTelemetry(runtime.TracerProvider(), runtime.TraceContext()))),
 		gateway.WithLogger(slog.New(slog.NewTextHandler(io.Discard, nil))),
 	)
-	server := httptest.NewServer(handler)
+	server := httptest.NewServer(runtime.HTTPHandler(handler))
 	t.Cleanup(server.Close)
 	return server
 }
@@ -128,7 +133,7 @@ func requestStatus(t *testing.T, server *httptest.Server, method string, path st
 	request, err := http.NewRequestWithContext(t.Context(), method, server.URL+path, nil)
 	require.NoError(t, err)
 	if token != "" {
-		request.Header.Set(tokenHeader, token)
+		request.Header.Set(headers.APIToken, token)
 	}
 	response, err := server.Client().Do(request)
 	require.NoError(t, err)
@@ -144,7 +149,7 @@ func requestTraceID(t *testing.T, server *httptest.Server, path string) string {
 	require.NoError(t, err)
 	defer response.Body.Close()
 	require.Equal(t, http.StatusNoContent, response.StatusCode)
-	return response.Header.Get("X-Goatway-Trace-ID")
+	return response.Header.Get(headers.TraceID)
 }
 
 func receive[T any](t *testing.T, channel <-chan T, message string) T {

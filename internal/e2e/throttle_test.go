@@ -83,8 +83,7 @@ func TestS9_disables_throttling_when_deployment_state_is_zero(t *testing.T) {
 
 func TestS10_generates_distinct_trace_ids(t *testing.T) {
 	// Given
-	backend := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
-		writer.Header().Set("X-Goatway-Trace-ID", request.Header.Get("X-Goatway-Trace-ID"))
+	backend := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
 		writer.WriteHeader(http.StatusNoContent)
 	}))
 	defer backend.Close()
