@@ -23,6 +23,7 @@ type Handler struct {
 	tracker       *throttle.DeploymentTracker
 	proxy         *proxy.Handler
 	logger        *slog.Logger
+	devMode       bool
 }
 
 // Option configures a Handler dependency.
@@ -39,6 +40,13 @@ func WithProxy(forwarder *proxy.Handler) Option {
 func WithLogger(logger *slog.Logger) Option {
 	return func(handler *Handler) {
 		handler.logger = logger
+	}
+}
+
+// WithDevMode enables development-only features such as request-time override.
+func WithDevMode(devMode bool) Option {
+	return func(handler *Handler) {
+		handler.devMode = devMode
 	}
 }
 
@@ -85,7 +93,7 @@ func (handler *Handler) ServeHTTP(writer http.ResponseWriter, request *http.Requ
 
 	traceID := request.Header.Get(traceIDHeader)
 	originalRequest := request
-	request, err := router.WithRequestTimeOverride(request)
+	request, err := router.WithRequestTimeOverride(request, handler.devMode)
 	if err != nil {
 		handler.logger.WarnContext(originalRequest.Context(), "gateway request time rejected", slog.String("trace_id", traceID), slog.Any("err", err))
 		handler.respond(writer, originalRequest, traceID, http.StatusBadRequest)

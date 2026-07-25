@@ -169,26 +169,25 @@ func TestRouter_Route_deniesIP_whenConfiguredRangeGroupsAreEmpty(t *testing.T) {
 func TestWithRequestTimeOverride_usesHeaderOnlyInDevelopment(t *testing.T) {
 	validTime := time.Date(2026, time.July, 20, 12, 34, 56, 0, time.UTC)
 	tests := []struct {
-		name        string
-		environment string
-		header      string
-		wantTime    bool
-		wantErr     error
+		name     string
+		devMode  bool
+		header   string
+		wantTime bool
+		wantErr  error
 	}{
-		{name: "development valid header", environment: "dev", header: validTime.Format(time.RFC3339), wantTime: true},
-		{name: "development invalid header", environment: "dev", header: "invalid", wantErr: ErrInvalidRequestTime},
-		{name: "production ignores header", environment: "prod", header: validTime.Format(time.RFC3339)},
+		{name: "development valid header", devMode: true, header: validTime.Format(time.RFC3339), wantTime: true},
+		{name: "development invalid header", devMode: true, header: "invalid", wantErr: ErrInvalidRequestTime},
+		{name: "production ignores header", devMode: false, header: validTime.Format(time.RFC3339)},
 	}
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			// Given
-			t.Setenv("GOATWAY_ENV", test.environment)
 			req := httptest.NewRequest("GET", "/sample", nil)
 			req.Header.Set("X-Goatway-Request-Time", test.header)
 
 			// When
-			updated, err := WithRequestTimeOverride(req)
+			updated, err := WithRequestTimeOverride(req, test.devMode)
 
 			// Then
 			if test.wantErr != nil {

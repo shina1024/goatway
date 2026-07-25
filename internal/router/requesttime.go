@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"net/http"
-	"os"
 	"time"
 )
 
@@ -13,8 +12,9 @@ const requestTimeHeader = "X-Goatway-Request-Time"
 type requestTimeContextKey struct{}
 
 // WithRequestTimeOverride records a development-only request timestamp in context.
-func WithRequestTimeOverride(request *http.Request) (*http.Request, error) {
-	if os.Getenv("GOATWAY_ENV") != "dev" {
+// When devMode is false the header is ignored without reading the environment.
+func WithRequestTimeOverride(request *http.Request, devMode bool) (*http.Request, error) {
+	if !devMode {
 		return request, nil
 	}
 

@@ -29,24 +29,24 @@ func TestHandler_returns_route_decision_status_when_request_is_rejected(t *testi
 	tests := []struct {
 		name    string
 		prepare func(t *testing.T, cfg *config.Config, request *http.Request)
+		devMode bool
 		want    int
 	}{
-		{"no route", func(_ *testing.T, _ *config.Config, request *http.Request) { request.URL.Path = "/missing" }, http.StatusNotFound},
-		{"missing token", func(_ *testing.T, _ *config.Config, _ *http.Request) {}, http.StatusUnauthorized},
+		{"no route", func(_ *testing.T, _ *config.Config, request *http.Request) { request.URL.Path = "/missing" }, false, http.StatusNotFound},
+		{"missing token", func(_ *testing.T, _ *config.Config, _ *http.Request) {}, false, http.StatusUnauthorized},
 		{"unknown token", func(_ *testing.T, _ *config.Config, request *http.Request) {
 			request.Header.Set(apiTokenHeader, "unknown")
-		}, http.StatusForbidden},
+		}, false, http.StatusForbidden},
 		{"client not allowed", func(_ *testing.T, _ *config.Config, request *http.Request) {
 			request.Header.Set(apiTokenHeader, "staff-token")
-		}, http.StatusForbidden},
+		}, false, http.StatusForbidden},
 		{"IP denied", func(_ *testing.T, _ *config.Config, request *http.Request) {
 			request.Header.Set(apiTokenHeader, "public-token")
 			request.RemoteAddr = "192.0.2.1:1234"
-		}, http.StatusForbidden},
-		{"invalid development request time", func(t *testing.T, _ *config.Config, request *http.Request) {
-			t.Setenv("GOATWAY_ENV", "dev")
+		}, false, http.StatusForbidden},
+		{"invalid development request time", func(_ *testing.T, _ *config.Config, request *http.Request) {
 			request.Header.Set("X-Goatway-Request-Time", "not-rfc3339")
-		}, http.StatusBadRequest},
+		}, true, http.StatusBadRequest},
 	}
 
 	for _, test := range tests {
@@ -55,7 +55,7 @@ func TestHandler_returns_route_decision_status_when_request_is_rejected(t *testi
 			cfg := testConfig(t, "127.0.0.1", 1)
 			request := httptest.NewRequest(http.MethodGet, "/products/42", nil)
 			test.prepare(t, cfg, request)
-			handler := newTestHandler(t, cfg, "public: 1\n")
+			handler := newTestHandler(t, cfg, "public: 1\n", test.devMode)
 			recorder := httptest.NewRecorder()
 
 			// When
@@ -78,7 +78,7 @@ func TestHandler_forwards_rewritten_request_when_route_is_allowed(t *testing.T) 
 
 	host, port := targetAddress(t, upstream.URL)
 	cfg := testConfig(t, host, port)
-	handler := newTestHandler(t, cfg, "public: 1\n")
+	handler := newTestHandler(t, cfg, "public: 1\n", false)
 	request := httptest.NewRequest(http.MethodGet, "/products/42", nil)
 	request.Header.Set(apiTokenHeader, "public-token")
 	request.RemoteAddr = "127.0.0.1:1234"
@@ -117,7 +117,7 @@ func TestHandler_writes_single_response_when_upstream_times_out(t *testing.T) {
 	target.ReadTimeout = 50
 	groupConfig.Targets[0] = target
 	cfg.TargetGroups["catalog"] = groupConfig
-	handler := newTestHandler(t, cfg, "public: 1\n")
+	handler := newTestHandler(t, cfg, "public: 1\n", false)
 
 	// When
 	writer := &statusRecorder{header: make(http.Header)}
@@ -128,7 +128,7 @@ func TestHandler_writes_single_response_when_upstream_times_out(t *testing.T) {
 	require.Equal(t, http.StatusGatewayTimeout, writer.statuses[0])
 }
 
-func newTestHandler(t *testing.T, cfg *config.Config, limits string) *Handler {
+func newTestHandler(t *testing.T, cfg *config.Config, limits string, devMode bool) *Handler {
 	t.Helper()
 	registry, err := targetgroup.NewRegistry(cfg.TargetGroups)
 	require.NoError(t, err)
@@ -141,6 +141,7 @@ func newTestHandler(t *testing.T, cfg *config.Config, limits string) *Handler {
 		cfg, registry, routes, limiter, tracker,
 		WithProxy(proxy.NewHandler()),
 		WithLogger(slog.New(slog.NewTextHandler(io.Discard, nil))),
+		WithDevMode(devMode),
 	)
 }
 

@@ -25,7 +25,7 @@ func TestHandler_rejects_over_limit_request_and_releases_slot_after_response(t *
 	}))
 	defer upstream.Close()
 	host, port := targetAddress(t, upstream.URL)
-	handler := newTestHandler(t, testConfig(t, host, port), "public: 1\n")
+	handler := newTestHandler(t, testConfig(t, host, port), "public: 1\n", false)
 	first := gatewayRequest()
 	second := gatewayRequest()
 	firstResult := make(chan *httptest.ResponseRecorder, 1)
@@ -76,7 +76,7 @@ func TestHandler_does_not_leak_throttle_slot_when_route_rejects_request(t *testi
 			}))
 			defer upstream.Close()
 			host, port := targetAddress(t, upstream.URL)
-			handler := newTestHandler(t, testConfig(t, host, port), "public: 1\n")
+			handler := newTestHandler(t, testConfig(t, host, port), "public: 1\n", false)
 			rejected := gatewayRequest()
 			test.prepare(rejected)
 
