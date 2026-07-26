@@ -157,6 +157,13 @@ func Test_Config_Load_rejects_invalid_gateway_configuration_with_typed_errors(t 
 			wantField: "proxy.max_response_body_size_bytes",
 			wantRule:  "positive max response body size",
 		},
+		{
+			name:      "invalid throttle fail policy",
+			gateway:   "schema_version: 1\nthrottle:\n  fail_policy: reject\n",
+			wantFile:  "gateway.yml",
+			wantField: "throttle.fail_policy",
+			wantRule:  "fail policy must be fail_open or fail_closed",
+		},
 	}
 
 	for _, test := range tests {

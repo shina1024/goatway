@@ -1,6 +1,10 @@
 package config
 
-import "time"
+import (
+	"time"
+
+	"goatway/internal/throttle"
+)
 
 const (
 	defaultConnectTimeout                 = time.Second
@@ -56,6 +60,9 @@ func (group TargetGroupConfig) EffectiveRetryMaxInterval() time.Duration {
 func (gateway GatewayConfig) withDefaults() GatewayConfig {
 	if gateway.Proxy.MaxResponseBodySizeBytes == 0 {
 		gateway.Proxy.MaxResponseBodySizeBytes = defaultMaxResponseBodySizeBytes
+	}
+	if gateway.Throttle.FailPolicy == "" {
+		gateway.Throttle.FailPolicy = string(throttle.FailOpen)
 	}
 	return gateway
 }

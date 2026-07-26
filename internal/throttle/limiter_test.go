@@ -164,6 +164,91 @@ func Test_IsOverLimit_returns_article_threshold_decisions(t *testing.T) {
 	}
 }
 
+func Test_IsOverLimit_rejects_degraded_state_when_fail_closed(t *testing.T) {
+	// Given
+	limiter := NewLimiterFromLimits(map[string]int{"premium": 100}, WithFailPolicy(FailClosed))
+
+	// When
+	got := limiter.IsOverLimit("premium", 1, "", InstanceCounts{}, TrafficWeight{})
+
+	// Then
+	require.True(t, got, "fail_closed degraded policy must reject configured clients")
+}
+
+func Test_IsOverLimit_defaults_to_fail_open_for_degraded_state(t *testing.T) {
+	// Given
+	limiter := NewLimiterFromLimits(map[string]int{"premium": 100})
+
+	// When
+	got := limiter.IsOverLimit("premium", 1, "", InstanceCounts{}, TrafficWeight{})
+
+	// Then
+	require.False(t, got)
+}
+
+func Test_IsOverLimit_fail_closed_rejects_every_degraded_state(t *testing.T) {
+	tests := []struct {
+		name           string
+		depType        string
+		instanceCounts InstanceCounts
+		trafficWeight  TrafficWeight
+	}{
+		{name: "missing deployment type", instanceCounts: InstanceCounts{Primary: 1}, trafficWeight: TrafficWeight{Primary: 100}},
+		{name: "zero total pods", depType: "primary", trafficWeight: TrafficWeight{Primary: 100}},
+		{name: "zero total weights", depType: "primary", instanceCounts: InstanceCounts{Primary: 1}},
+		{name: "selected primary has zero pods", depType: "primary", instanceCounts: InstanceCounts{Canary: 1}, trafficWeight: TrafficWeight{Primary: 100}},
+		{name: "selected canary has zero pods", depType: "canary", instanceCounts: InstanceCounts{Primary: 1}, trafficWeight: TrafficWeight{Primary: 90, Canary: 10}},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			// Given
+			limiter := NewLimiterFromLimits(map[string]int{"premium": 100}, WithFailPolicy(FailClosed))
+
+			// When
+			got := limiter.IsOverLimit("premium", 1, test.depType, test.instanceCounts, test.trafficWeight)
+
+			// Then
+			require.True(t, got)
+		})
+	}
+}
+
+func Test_IsOverLimit_fail_closed_preserves_healthy_threshold_decisions(t *testing.T) {
+	tests := []struct {
+		name  string
+		count int
+		want  bool
+	}{
+		{name: "under limit", count: 100, want: false},
+		{name: "over limit", count: 101, want: true},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			// Given
+			limiter := NewLimiterFromLimits(map[string]int{"premium": 100}, WithFailPolicy(FailClosed))
+
+			// When
+			got := limiter.IsOverLimit("premium", test.count, "primary", InstanceCounts{Primary: 1}, TrafficWeight{Primary: 100})
+
+			// Then
+			require.Equal(t, test.want, got)
+		})
+	}
+}
+
+func Test_IsOverLimit_does_not_apply_fail_closed_without_configured_limit(t *testing.T) {
+	// Given
+	limiter := NewLimiterFromLimits(map[string]int{"premium": 100}, WithFailPolicy(FailClosed))
+
+	// When
+	got := limiter.IsOverLimit("unknown", 1000, "", InstanceCounts{}, TrafficWeight{})
+
+	// Then
+	require.False(t, got)
+}
+
 func Test_Limiter_counts_active_client_requests_without_leaking(t *testing.T) {
 	// Given
 	limiter, err := NewLimiter(writeTestFile(t, "max_concurrent_requests.yml", "premium: 100\n"))

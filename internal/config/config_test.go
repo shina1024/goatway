@@ -38,6 +38,7 @@ func Test_Config_Load_uses_gateway_default_when_file_is_absent(t *testing.T) {
 	// Then
 	require.NoError(t, err)
 	require.Equal(t, int64(10485760), config.Gateway.Proxy.MaxResponseBodySizeBytes)
+	require.Equal(t, "fail_open", config.Gateway.Throttle.FailPolicy)
 }
 
 func Test_Config_Load_reads_gateway_proxy_setting(t *testing.T) {
@@ -54,6 +55,32 @@ proxy:
 	// Then
 	require.NoError(t, err)
 	require.Equal(t, int64(2097152), config.Gateway.Proxy.MaxResponseBodySizeBytes)
+}
+
+func Test_Config_Load_defaults_empty_gateway_fail_policy_to_fail_open(t *testing.T) {
+	// Given
+	files := validConfigFiles()
+	files["gateway.yml"] = "schema_version: 1\nthrottle:\n  fail_policy: \"\"\n"
+
+	// When
+	config, err := Load(writeConfigFiles(t, files))
+
+	// Then
+	require.NoError(t, err)
+	require.Equal(t, "fail_open", config.Gateway.Throttle.FailPolicy)
+}
+
+func Test_Config_Load_reads_fail_closed_gateway_policy(t *testing.T) {
+	// Given
+	files := validConfigFiles()
+	files["gateway.yml"] = "schema_version: 1\nthrottle:\n  fail_policy: fail_closed\n"
+
+	// When
+	config, err := Load(writeConfigFiles(t, files))
+
+	// Then
+	require.NoError(t, err)
+	require.Equal(t, "fail_closed", config.Gateway.Throttle.FailPolicy)
 }
 
 func Test_TargetGroupConfig_resolves_zero_values_to_defaults(t *testing.T) {

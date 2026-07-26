@@ -14,10 +14,21 @@ type Limiter struct {
 	clientCount      map[string]int
 	maxConcurrentMu  sync.RWMutex
 	maxConcurrentMap map[string]int
+	failPolicy       FailPolicy
+}
+
+// LimiterOption configures a limiter.
+type LimiterOption func(*Limiter)
+
+// WithFailPolicy configures the decision used for degraded deployment state.
+func WithFailPolicy(policy FailPolicy) LimiterOption {
+	return func(limiter *Limiter) {
+		limiter.failPolicy = policy
+	}
 }
 
 // NewLimiter loads the static per-client maximums once from path.
-func NewLimiter(path string) (*Limiter, error) {
+func NewLimiter(path string, options ...LimiterOption) (*Limiter, error) {
 	data, err := os.ReadFile(path) //nolint:gosec // the path comes from the trusted local configuration directory
 	if err != nil {
 		return nil, fmt.Errorf("read max concurrent requests file %q: %w", path, err)
@@ -28,16 +39,23 @@ func NewLimiter(path string) (*Limiter, error) {
 		return nil, fmt.Errorf("parse max concurrent requests file %q: %w", path, err)
 	}
 
-	return NewLimiterFromLimits(limits), nil
+	return NewLimiterFromLimits(limits, options...), nil
 }
 
 // NewLimiterFromLimits creates a limiter from an already-parsed maximums map,
 // avoiding a redundant file read when configuration is already loaded.
-func NewLimiterFromLimits(limits map[string]int) *Limiter {
-	return &Limiter{
+func NewLimiterFromLimits(limits map[string]int, options ...LimiterOption) *Limiter {
+	limiter := &Limiter{
 		clientCount:      make(map[string]int),
 		maxConcurrentMap: limits,
+		failPolicy:       FailOpen,
 	}
+	for _, option := range options {
+		if option != nil {
+			option(limiter)
+		}
+	}
+	return limiter
 }
 
 // Inc records a transfer start and returns the new active count for client.
@@ -83,12 +101,12 @@ func (l *Limiter) IsOverLimit(
 		return false
 	}
 	if depType == "" || instanceCounts.Primary+instanceCounts.Canary == 0 || trafficWeight.Primary+trafficWeight.Canary == 0 {
-		return false
+		return l.failPolicy == FailClosed
 	}
 
 	if trafficWeight.Canary == 0 {
 		if instanceCounts.Primary == 0 {
-			return false
+			return l.failPolicy == FailClosed
 		}
 		threshold := int(int64(maximum) / int64(instanceCounts.Primary))
 		if threshold == 0 {
@@ -102,7 +120,7 @@ func (l *Limiter) IsOverLimit(
 		weight, instances = trafficWeight.Primary, instanceCounts.Primary
 	}
 	if instances == 0 {
-		return false
+		return l.failPolicy == FailClosed
 	}
 	threshold := int(int64(maximum) * int64(weight) / 100 / int64(instances))
 	if threshold == 0 {

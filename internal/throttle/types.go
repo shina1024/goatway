@@ -20,6 +20,14 @@ type TrafficWeight struct {
 	Canary  int
 }
 
+// FailPolicy controls decisions when deployment state cannot produce a threshold.
+type FailPolicy string
+
+const (
+	FailOpen   FailPolicy = "fail_open"
+	FailClosed FailPolicy = "fail_closed"
+)
+
 // DeploymentState is one atomically published view of instance counts and traffic weights.
 type DeploymentState struct {
 	InstanceCounts InstanceCounts

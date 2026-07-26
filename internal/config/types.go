@@ -78,12 +78,17 @@ type DeploymentConfig struct {
 }
 
 type GatewayConfig struct {
-	SchemaVersion int         `yaml:"schema_version"`
-	Proxy         ProxyConfig `yaml:"proxy"`
+	SchemaVersion int            `yaml:"schema_version"`
+	Proxy         ProxyConfig    `yaml:"proxy"`
+	Throttle      ThrottleConfig `yaml:"throttle"`
 }
 
 type ProxyConfig struct {
 	MaxResponseBodySizeBytes int64 `yaml:"max_response_body_size_bytes"`
+}
+
+type ThrottleConfig struct {
+	FailPolicy string `yaml:"fail_policy"`
 }
 
 type DecodeError struct {

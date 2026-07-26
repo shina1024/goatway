@@ -113,7 +113,10 @@ func run(ctx context.Context, settings runSettings, dependencies runDependencies
 	for client, maximum := range configuration.MaxConcurrentRequests {
 		limits[string(client)] = maximum
 	}
-	limiter := throttle.NewLimiterFromLimits(limits)
+	limiter := throttle.NewLimiterFromLimits(
+		limits,
+		throttle.WithFailPolicy(throttle.FailPolicy(configuration.Gateway.Throttle.FailPolicy)),
+	)
 	tracker := throttle.NewDeploymentTracker(throttle.WithLogger(settings.logger))
 	if err := tracker.SetDepType(); err != nil {
 		return fmt.Errorf("detect deployment type: %w", err)
