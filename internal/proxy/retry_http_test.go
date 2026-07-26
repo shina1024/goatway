@@ -3,6 +3,7 @@ package proxy
 import (
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -170,4 +171,75 @@ func TestHandler_ForwardWithRetry_retries_timeout_against_healthy_target(t *test
 	require.Equal(t, http.StatusOK, recorder.Code)
 	require.Equal(t, int64(1), firstCalls.Load())
 	require.Equal(t, int64(1), secondCalls.Load())
+}
+
+func TestHandler_ForwardWithRetry_returns_bad_gateway_without_retry_when_response_exceeds_limit(t *testing.T) {
+	// Given
+	var firstCalls, secondCalls atomic.Int64
+	oversizedBody := strings.Repeat("x", maxRequestBodySize+1)
+	first := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+		firstCalls.Add(1)
+		writer.WriteHeader(http.StatusOK)
+		_, _ = writer.Write([]byte(oversizedBody))
+	}))
+	defer first.Close()
+	second := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+		secondCalls.Add(1)
+		writer.WriteHeader(http.StatusOK)
+	}))
+	defer second.Close()
+	registry := newRetryRegistry(t, map[config.TargetGroupID]config.TargetGroupConfig{
+		"api": {
+			Targets:           []config.TargetConfig{retryTarget(t, first.URL, time.Second), retryTarget(t, second.URL, time.Second)},
+			MaxTryCount:       2,
+			RetryCases:        []string{"timeout", "server_error"},
+			RetryBaseInterval: 1,
+		},
+	})
+	group, err := registry.Lookup("api")
+	require.NoError(t, err)
+	recorder := httptest.NewRecorder()
+
+	// When
+	result, err := NewHandler(WithRetrySleeper(func(time.Duration) {})).ForwardWithRetry(
+		recorder,
+		httptest.NewRequest(http.MethodGet, "/incoming", nil),
+		retryInput(group, map[string]string{"api": "/rewritten"}),
+	)
+
+	// Then
+	require.Equal(t, http.StatusBadGateway, recorder.Code)
+	require.Error(t, err)
+	require.Equal(t, ErrClassOther, result.ErrClass)
+	require.Equal(t, "Bad Gateway\n", recorder.Body.String())
+	require.Equal(t, int64(1), firstCalls.Load())
+	require.Zero(t, secondCalls.Load())
+}
+
+func TestHandler_ForwardWithRetry_forwards_response_at_configured_limit(t *testing.T) {
+	// Given
+	upstream := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+		writer.WriteHeader(http.StatusCreated)
+		_, _ = writer.Write([]byte("body"))
+	}))
+	defer upstream.Close()
+	registry := newRetryRegistry(t, map[config.TargetGroupID]config.TargetGroupConfig{
+		"api": {Targets: []config.TargetConfig{retryTarget(t, upstream.URL, time.Second)}},
+	})
+	group, err := registry.Lookup("api")
+	require.NoError(t, err)
+	recorder := httptest.NewRecorder()
+
+	// When
+	result, err := NewHandler(WithMaxResponseBodySize(4)).ForwardWithRetry(
+		recorder,
+		httptest.NewRequest(http.MethodGet, "/incoming", nil),
+		retryInput(group, map[string]string{"api": "/rewritten"}),
+	)
+
+	// Then
+	require.NoError(t, err)
+	require.Equal(t, http.StatusCreated, result.StatusCode)
+	require.Equal(t, http.StatusCreated, recorder.Code)
+	require.Equal(t, "body", recorder.Body.String())
 }

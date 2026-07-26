@@ -5,14 +5,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io"
 	"log/slog"
 	"net"
 	"net/http"
 	"net/http/httputil"
 	"net/url"
 	"os"
-	"strings"
 	"time"
 
 	"goatway/internal/headers"
@@ -27,6 +25,8 @@ var (
 	ErrNilTargetGroup   = errors.New("proxy: nil target group")
 	ErrMissingRoutePath = errors.New("proxy: missing routed path")
 )
+
+const defaultMaxResponseBodySize = 10 << 20
 
 // ErrClass identifies a transport outcome that a later retry policy may inspect.
 type ErrClass uint8
@@ -68,6 +68,15 @@ func WithLogger(logger *slog.Logger) Option {
 	}
 }
 
+// WithMaxResponseBodySize sets the maximum buffered upstream response size.
+func WithMaxResponseBodySize(bytes int64) Option {
+	return func(handler *Handler) {
+		if bytes > 0 {
+			handler.maxResponseBodySize = bytes
+		}
+	}
+}
+
 // WithRetrySleeper replaces the delay function used between retry attempts.
 func WithRetrySleeper(sleeper func(time.Duration)) Option {
 	return func(handler *Handler) {
@@ -90,17 +99,19 @@ func withRetryWaiter(waiter func(context.Context, time.Duration) error) Option {
 
 // Handler owns reusable HTTP clients and performs one forwarding attempt at a time.
 type Handler struct {
-	clients     clientCache
-	logger      *slog.Logger
-	retryWaiter func(context.Context, time.Duration) error
+	clients             clientCache
+	logger              *slog.Logger
+	retryWaiter         func(context.Context, time.Duration) error
+	maxResponseBodySize int64
 }
 
 // NewHandler creates a single-attempt forwarder using slog.Default unless overridden.
 func NewHandler(options ...Option) *Handler {
 	handler := &Handler{
-		clients:     newClientCache(),
-		logger:      slog.Default(),
-		retryWaiter: waitForRetry,
+		clients:             newClientCache(),
+		logger:              slog.Default(),
+		retryWaiter:         waitForRetry,
+		maxResponseBodySize: defaultMaxResponseBodySize,
 	}
 	for _, option := range options {
 		option(handler)
@@ -167,7 +178,7 @@ func (handler *Handler) ForwardBuffered(writer http.ResponseWriter, request *htt
 			err = errors.Join(err, fmt.Errorf("close upstream response: %w", closeErr))
 		}
 	}()
-	responseBody, err := io.ReadAll(response.Body)
+	responseBody, err := readResponseBody(response.Body, handler.maxResponseBodySize)
 	if err != nil {
 		return handler.failed(request.Context(), result, "read upstream response", err)
 	}
@@ -188,6 +199,9 @@ func ClassifyError(err error) ErrClass {
 	if err == nil {
 		return ErrClassNone
 	}
+	if errors.Is(err, ErrResponseTooLarge) {
+		return ErrClassOther
+	}
 	if errors.Is(err, context.DeadlineExceeded) || os.IsTimeout(err) {
 		return ErrClassTimeout
 	}
@@ -204,54 +218,4 @@ func (handler *Handler) failed(ctx context.Context, result AttemptResult, operat
 		handler.logger.WarnContext(ctx, "proxy client disconnected", slog.Int("status", clientClosedStatus), slog.String("trace_id", telemetry.TraceID(ctx)), slog.Any("err", err))
 	}
 	return result, fmt.Errorf("%s: %w", operation, err)
-}
-
-func copyForwardableHeaders(destination, source http.Header) {
-	for name, values := range source {
-		destination[name] = append([]string(nil), values...)
-	}
-}
-
-func filteredRequestHeaders(header http.Header) http.Header {
-	result := withoutHopByHopHeaders(header)
-	removeHeaders(result, headers.APIToken, "Authorization", "Cookie", headers.RequestTime, headers.TraceID, "traceparent", "tracestate", "baggage", "Forwarded")
-	for name := range result {
-		if strings.HasPrefix(strings.ToLower(name), "x-forwarded-") {
-			delete(result, name)
-		}
-	}
-	return result
-}
-
-func filteredResponseHeaders(header http.Header) http.Header {
-	result := withoutHopByHopHeaders(header)
-	removeHeaders(result, "Set-Cookie", headers.TraceID, "traceparent", "tracestate", "baggage")
-	return result
-}
-
-func withoutHopByHopHeaders(header http.Header) http.Header {
-	result := header.Clone()
-	var connectionValues []string
-	for name, values := range result {
-		if strings.EqualFold(name, "Connection") {
-			connectionValues = append(connectionValues, values...)
-		}
-	}
-	removeHeaders(result, "Connection", "Keep-Alive", "Proxy-Authenticate", "Proxy-Authorization", "Proxy-Connection", "TE", "Trailer", "Transfer-Encoding", "Upgrade")
-	for _, value := range connectionValues {
-		for name := range strings.SplitSeq(value, ",") {
-			removeHeaders(result, strings.TrimSpace(name))
-		}
-	}
-	return result
-}
-
-func removeHeaders(header http.Header, names ...string) {
-	for _, name := range names {
-		for existingName := range header {
-			if strings.EqualFold(existingName, name) {
-				delete(header, existingName)
-			}
-		}
-	}
 }

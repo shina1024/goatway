@@ -121,6 +121,7 @@ func run(ctx context.Context, settings runSettings, dependencies runDependencies
 	forwarder := proxy.NewHandler(
 		proxy.WithLogger(settings.logger),
 		proxy.WithTelemetry(runtime.TracerProvider(), runtime.TraceContext()),
+		proxy.WithMaxResponseBodySize(configuration.Gateway.Proxy.MaxResponseBodySizeBytes),
 	)
 	handler := gateway.NewHandler(
 		configuration,
