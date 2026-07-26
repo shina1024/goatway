@@ -2,12 +2,18 @@ package telemetry
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
+	"sync"
 
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetricgrpc"
 	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc"
+	"go.opentelemetry.io/otel/metric"
 	"go.opentelemetry.io/otel/propagation"
+	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 	"go.opentelemetry.io/otel/sdk/resource"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	semconv "go.opentelemetry.io/otel/semconv/v1.41.0"
@@ -21,20 +27,30 @@ const (
 	spanProcessorMaxExportBatchSize = 32
 )
 
-type exporterFactory func(context.Context, Config) (sdktrace.SpanExporter, error)
+type (
+	exporterFactory       func(context.Context, Config) (sdktrace.SpanExporter, error)
+	metricExporterFactory func(context.Context, Config) (sdkmetric.Exporter, error)
+)
 
-// Runtime owns the OpenTelemetry tracing provider and propagation settings.
+// Runtime owns the OpenTelemetry tracing and metric providers plus propagation settings.
 type Runtime struct {
-	provider   *sdktrace.TracerProvider
-	propagator propagation.TraceContext
+	provider      *sdktrace.TracerProvider
+	meterProvider *sdkmetric.MeterProvider
+	propagator    propagation.TraceContext
+	shutdownOnce  sync.Once
+	shutdownErr   error
 }
 
 // New creates a tracing runtime using the supplied export configuration.
 func New(ctx context.Context, config Config) (*Runtime, error) {
-	return newRuntime(ctx, config, newOTLPGRPCExporter)
+	return newRuntimeWithMetricExporter(ctx, config, newOTLPGRPCExporter, newOTLPGRPCMetricExporter)
 }
 
 func newRuntime(ctx context.Context, config Config, createExporter exporterFactory) (*Runtime, error) {
+	return newRuntimeWithMetricExporter(ctx, config, createExporter, newOTLPGRPCMetricExporter)
+}
+
+func newRuntimeWithMetricExporter(ctx context.Context, config Config, createExporter exporterFactory, createMetricExporter metricExporterFactory) (*Runtime, error) {
 	config = config.normalized()
 	if err := config.validate(); err != nil {
 		return nil, err
@@ -64,11 +80,19 @@ func newRuntime(ctx context.Context, config Config, createExporter exporterFacto
 			sdktrace.WithMaxExportBatchSize(spanProcessorMaxExportBatchSize),
 		))
 	}
-
-	return &Runtime{
-		provider:   sdktrace.NewTracerProvider(options...),
-		propagator: propagation.TraceContext{},
-	}, nil
+	meterOptions := []sdkmetric.Option{sdkmetric.WithResource(res)}
+	if config.MetricsEndpoint != "" {
+		exporter, err := createMetricExporter(ctx, config)
+		if err != nil {
+			return nil, fmt.Errorf("create OTLP metric exporter: %w", err)
+		}
+		meterOptions = append(meterOptions, sdkmetric.WithReader(sdkmetric.NewPeriodicReader(exporter)))
+	} else {
+		meterOptions = append(meterOptions, sdkmetric.WithReader(sdkmetric.NewManualReader()))
+	}
+	meterProvider := sdkmetric.NewMeterProvider(meterOptions...)
+	otel.SetMeterProvider(meterProvider)
+	return &Runtime{provider: sdktrace.NewTracerProvider(options...), meterProvider: meterProvider, propagator: propagation.TraceContext{}}, nil
 }
 
 func runtimeResource(ctx context.Context) (*resource.Resource, error) {
@@ -94,9 +118,22 @@ func newOTLPGRPCExporter(ctx context.Context, config Config) (sdktrace.SpanExpor
 	return exporter, nil
 }
 
+func newOTLPGRPCMetricExporter(ctx context.Context, config Config) (sdkmetric.Exporter, error) {
+	exporter, err := otlpmetricgrpc.New(ctx, otlpmetricgrpc.WithEndpointURL(config.MetricsEndpoint))
+	if err != nil {
+		return nil, fmt.Errorf("create OTLP gRPC metric exporter: %w", err)
+	}
+	return exporter, nil
+}
+
 // TracerProvider returns the explicit provider for application instrumentation.
 func (runtime *Runtime) TracerProvider() trace.TracerProvider {
 	return runtime.provider
+}
+
+// MeterProvider returns the explicit provider for application metrics instrumentation.
+func (runtime *Runtime) MeterProvider() metric.MeterProvider {
+	return runtime.meterProvider
 }
 
 // TraceContext returns the W3C Trace Context propagator used by this runtime.
@@ -117,9 +154,12 @@ func (runtime *Runtime) HTTPHandler(next http.Handler) http.Handler {
 	)
 }
 
-// Shutdown flushes and closes runtime tracing resources using ctx as its bound.
+// Shutdown flushes and closes runtime telemetry resources using ctx as its bound.
 func (runtime *Runtime) Shutdown(ctx context.Context) error {
-	return runtime.provider.Shutdown(ctx)
+	runtime.shutdownOnce.Do(func() {
+		runtime.shutdownErr = errors.Join(runtime.provider.Shutdown(ctx), runtime.meterProvider.Shutdown(ctx))
+	})
+	return runtime.shutdownErr
 }
 
 // TraceID returns the current valid W3C trace identifier, or an empty string.

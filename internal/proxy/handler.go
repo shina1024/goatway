@@ -103,6 +103,14 @@ type Handler struct {
 	logger              *slog.Logger
 	retryWaiter         func(context.Context, time.Duration) error
 	maxResponseBodySize int64
+	metrics             *telemetry.Metrics
+}
+
+// WithMetrics sets the RED metric instruments used by retry forwarding.
+func WithMetrics(metrics *telemetry.Metrics) Option {
+	return func(handler *Handler) {
+		handler.metrics = metrics
+	}
 }
 
 // NewHandler creates a single-attempt forwarder using slog.Default unless overridden.

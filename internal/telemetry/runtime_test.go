@@ -11,6 +11,8 @@ import (
 	"github.com/stretchr/testify/require"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/propagation"
+	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
+	"go.opentelemetry.io/otel/sdk/metric/metricdata"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 )
 
@@ -76,6 +78,29 @@ func TestRuntime_flushesAndClosesConfiguredExporterOnShutdown(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, exporter.exportedSpans(), 1)
 	require.Equal(t, 1, exporter.shutdownCount())
+}
+
+func TestRuntime_flushesAndClosesConfiguredMetricExporterOnShutdown(t *testing.T) {
+	// Given
+	metricExporter := &memoryMetricExporter{}
+	config := Config{MetricsEndpoint: "https://collector.example.test:4317", MetricsProtocol: grpcProtocol}
+	runtime, err := newRuntimeWithMetricExporter(context.Background(), config, func(context.Context, Config) (sdktrace.SpanExporter, error) {
+		return &memoryExporter{}, nil
+	}, func(context.Context, Config) (sdkmetric.Exporter, error) {
+		return metricExporter, nil
+	})
+	require.NoError(t, err)
+	metrics, err := NewMetrics(runtime.MeterProvider().Meter("goatway"))
+	require.NoError(t, err)
+	metrics.Requests.Add(context.Background(), 1)
+
+	// When
+	err = runtime.Shutdown(context.Background())
+
+	// Then
+	require.NoError(t, err)
+	require.Equal(t, 1, metricExporter.exportCount())
+	require.Equal(t, 1, metricExporter.shutdownCount())
 }
 
 func TestRuntime_usesGoatwayAsDefaultServiceName(t *testing.T) {
@@ -176,6 +201,50 @@ type memoryExporter struct {
 	mu            sync.Mutex
 	spans         []sdktrace.ReadOnlySpan
 	shutdownCalls int
+}
+
+type memoryMetricExporter struct {
+	mu            sync.Mutex
+	exportCalls   int
+	shutdownCalls int
+}
+
+func (exporter *memoryMetricExporter) Temporality(sdkmetric.InstrumentKind) metricdata.Temporality {
+	return metricdata.CumulativeTemporality
+}
+
+func (exporter *memoryMetricExporter) Aggregation(kind sdkmetric.InstrumentKind) sdkmetric.Aggregation {
+	return sdkmetric.DefaultAggregationSelector(kind)
+}
+
+func (exporter *memoryMetricExporter) Export(context.Context, *metricdata.ResourceMetrics) error {
+	exporter.mu.Lock()
+	defer exporter.mu.Unlock()
+	exporter.exportCalls++
+	return nil
+}
+
+func (exporter *memoryMetricExporter) ForceFlush(context.Context) error {
+	return nil
+}
+
+func (exporter *memoryMetricExporter) Shutdown(context.Context) error {
+	exporter.mu.Lock()
+	defer exporter.mu.Unlock()
+	exporter.shutdownCalls++
+	return nil
+}
+
+func (exporter *memoryMetricExporter) exportCount() int {
+	exporter.mu.Lock()
+	defer exporter.mu.Unlock()
+	return exporter.exportCalls
+}
+
+func (exporter *memoryMetricExporter) shutdownCount() int {
+	exporter.mu.Lock()
+	defer exporter.mu.Unlock()
+	return exporter.shutdownCalls
 }
 
 func (exporter *memoryExporter) ExportSpans(_ context.Context, spans []sdktrace.ReadOnlySpan) error {

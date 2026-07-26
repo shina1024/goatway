@@ -10,6 +10,7 @@ import (
 
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
+	"go.opentelemetry.io/otel/metric"
 	"go.opentelemetry.io/otel/trace"
 
 	"goatway/internal/router"
@@ -78,6 +79,10 @@ func (handler *Handler) ForwardWithRetry(writer http.ResponseWriter, request *ht
 	)
 	request = request.WithContext(transferContext)
 	attemptCount := 0
+	targetGroup := ""
+	if input.Group != nil {
+		targetGroup = string(input.Group.ID())
+	}
 	defer func() {
 		attributes := []attribute.KeyValue{attribute.Int("goatway.proxy.attempt_count", attemptCount)}
 		if input.Group != nil {
@@ -98,6 +103,12 @@ func (handler *Handler) ForwardWithRetry(writer http.ResponseWriter, request *ht
 			}
 			attributes = append(attributes, attribute.String("error.type", errorType))
 			transfer.SetStatus(codes.Error, "")
+			if handler.metrics != nil {
+				handler.metrics.Errors.Add(request.Context(), 1, metric.WithAttributes(
+					attribute.String("error_type", errorType),
+					attribute.String("target_group", targetGroup),
+				))
+			}
 		}
 		transfer.SetAttributes(attributes...)
 		transfer.End()
@@ -111,6 +122,7 @@ func (handler *Handler) ForwardWithRetry(writer http.ResponseWriter, request *ht
 	}
 	attempts := retrySchedule(input.Group, request.Method)
 	for index, planned := range attempts {
+		targetGroup = string(planned.group.ID())
 		attemptCount++
 		response := newBufferedResponse()
 		result, attemptErr := handler.ForwardBuffered(response, request, BufferedAttempt{
@@ -122,6 +134,9 @@ func (handler *Handler) ForwardWithRetry(writer http.ResponseWriter, request *ht
 			Body: body,
 		})
 		if retryable(planned.group, result, attemptErr) && index+1 < len(attempts) {
+			if handler.metrics != nil {
+				handler.metrics.Retries.Add(request.Context(), 1, metric.WithAttributes(attribute.String("target_group", targetGroup)))
+			}
 			next := attempts[index+1]
 			delay := fullJitter(retryBackoffCap(next.group.RetryBaseInterval(), next.group.RetryMaxInterval(), index+1))
 			if waitErr := handler.retryWaiter(request.Context(), delay); waitErr != nil {

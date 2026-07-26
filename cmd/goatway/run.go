@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"time"
 
+	"go.opentelemetry.io/otel/metric"
 	"go.opentelemetry.io/otel/propagation"
 	"go.opentelemetry.io/otel/trace"
 
@@ -29,6 +30,7 @@ const (
 
 type telemetryRuntime interface {
 	TracerProvider() trace.TracerProvider
+	MeterProvider() metric.MeterProvider
 	TraceContext() propagation.TraceContext
 	HTTPHandler(http.Handler) http.Handler
 	Shutdown(context.Context) error
@@ -122,9 +124,14 @@ func run(ctx context.Context, settings runSettings, dependencies runDependencies
 		return fmt.Errorf("detect deployment type: %w", err)
 	}
 	fetcher := dependencies.newFileFetcher(filepath.Join(settings.configDir, "deployment.yml"))
+	metrics, err := telemetry.NewMetrics(runtime.MeterProvider().Meter("goatway"))
+	if err != nil {
+		return fmt.Errorf("create telemetry metrics: %w", err)
+	}
 	forwarder := proxy.NewHandler(
 		proxy.WithLogger(settings.logger),
 		proxy.WithTelemetry(runtime.TracerProvider(), runtime.TraceContext()),
+		proxy.WithMetrics(metrics),
 		proxy.WithMaxResponseBodySize(configuration.Gateway.Proxy.MaxResponseBodySizeBytes),
 	)
 	handler := gateway.NewHandler(
@@ -136,6 +143,7 @@ func run(ctx context.Context, settings runSettings, dependencies runDependencies
 		gateway.WithProxy(forwarder),
 		gateway.WithLogger(settings.logger),
 		gateway.WithDevMode(settings.devMode),
+		gateway.WithMetrics(metrics),
 	)
 	tracedGateway := runtime.HTTPHandler(handler)
 	mux := http.NewServeMux()

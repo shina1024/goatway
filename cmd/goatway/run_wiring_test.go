@@ -9,6 +9,8 @@ import (
 
 	"github.com/stretchr/testify/require"
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
+	"go.opentelemetry.io/otel/metric"
+	"go.opentelemetry.io/otel/metric/noop"
 	"go.opentelemetry.io/otel/propagation"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	"go.opentelemetry.io/otel/sdk/trace/tracetest"
@@ -130,6 +132,10 @@ type instrumentedRuntime struct {
 
 func (runtime *instrumentedRuntime) TracerProvider() trace.TracerProvider {
 	return runtime.provider
+}
+
+func (runtime *instrumentedRuntime) MeterProvider() metric.MeterProvider {
+	return noop.NewMeterProvider()
 }
 
 func (runtime *instrumentedRuntime) TraceContext() propagation.TraceContext {

@@ -12,6 +12,7 @@ func TestConfigFromEnv_prefersTraceSpecificSettings(t *testing.T) {
 	t.Setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "https://fallback.example.test:4317")
 	t.Setenv("OTEL_EXPORTER_OTLP_TRACES_PROTOCOL", "grpc")
 	t.Setenv("OTEL_EXPORTER_OTLP_PROTOCOL", "http/protobuf")
+	t.Setenv("OTEL_EXPORTER_OTLP_METRICS_PROTOCOL", "grpc")
 
 	// When
 	config, err := ConfigFromEnv()
@@ -37,9 +38,28 @@ func TestConfigFromEnv_usesGeneralEndpointWhenTraceSpecificEndpointIsEmpty(t *te
 	require.Equal(t, "grpc", config.Protocol)
 }
 
+func TestConfigFromEnv_prefersMetricsSpecificSettings(t *testing.T) {
+	// Given
+	t.Setenv("OTEL_EXPORTER_OTLP_METRICS_ENDPOINT", "https://metrics.example.test:4317")
+	t.Setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "https://fallback.example.test:4317")
+	t.Setenv("OTEL_EXPORTER_OTLP_METRICS_PROTOCOL", "grpc")
+	t.Setenv("OTEL_EXPORTER_OTLP_PROTOCOL", "http/protobuf")
+	t.Setenv("OTEL_EXPORTER_OTLP_TRACES_ENDPOINT", "https://traces.example.test:4317")
+	t.Setenv("OTEL_EXPORTER_OTLP_TRACES_PROTOCOL", "grpc")
+
+	// When
+	config, err := ConfigFromEnv()
+
+	// Then
+	require.NoError(t, err)
+	require.Equal(t, "https://metrics.example.test:4317", config.MetricsEndpoint)
+	require.Equal(t, "grpc", config.MetricsProtocol)
+}
+
 func TestConfigFromEnv_disablesExportWhenNoEndpointIsConfigured(t *testing.T) {
 	// Given
 	t.Setenv("OTEL_EXPORTER_OTLP_TRACES_ENDPOINT", "")
+	t.Setenv("OTEL_EXPORTER_OTLP_METRICS_ENDPOINT", "")
 	t.Setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "")
 
 	// When
@@ -49,6 +69,8 @@ func TestConfigFromEnv_disablesExportWhenNoEndpointIsConfigured(t *testing.T) {
 	require.NoError(t, err)
 	require.Empty(t, config.Endpoint)
 	require.Equal(t, "grpc", config.Protocol)
+	require.Empty(t, config.MetricsEndpoint)
+	require.Equal(t, "grpc", config.MetricsProtocol)
 }
 
 func TestConfigFromEnv_rejectsInvalidConfiguredEndpoint(t *testing.T) {

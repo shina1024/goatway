@@ -4,6 +4,7 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
+	"time"
 
 	"goatway/internal/config"
 	"goatway/internal/headers"
@@ -24,6 +25,7 @@ type Handler struct {
 	proxy         *proxy.Handler
 	logger        *slog.Logger
 	devMode       bool
+	metrics       *telemetry.Metrics
 }
 
 // Option configures a Handler dependency.
@@ -47,6 +49,13 @@ func WithLogger(logger *slog.Logger) Option {
 func WithDevMode(devMode bool) Option {
 	return func(handler *Handler) {
 		handler.devMode = devMode
+	}
+}
+
+// WithMetrics sets the RED metric instruments used by the gateway.
+func WithMetrics(metrics *telemetry.Metrics) Option {
+	return func(handler *Handler) {
+		handler.metrics = metrics
 	}
 }
 
@@ -90,6 +99,16 @@ func (handler *Handler) ServeHTTP(writer http.ResponseWriter, request *http.Requ
 		http.Error(writer, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
 		return
 	}
+	started := time.Now()
+	requestContext := request.Context()
+	requestMethod := request.Method
+	metricsWriter := &metricsResponseWriter{ResponseWriter: writer}
+	client := ""
+	targetGroup := ""
+	defer func() {
+		handler.recordRequestMetrics(requestContext, started, requestMethod, metricsWriter.status, client, targetGroup)
+	}()
+	writer = metricsWriter
 
 	writer.Header().Set(headers.TraceID, telemetry.TraceID(request.Context()))
 	originalRequest := request
@@ -105,6 +124,8 @@ func (handler *Handler) ServeHTTP(writer http.ResponseWriter, request *http.Requ
 		handler.writeRouteError(writer, request, err)
 		return
 	}
+	client = string(match.ClientType)
+	targetGroup = match.TargetGroupID
 	handler.logger.InfoContext(
 		request.Context(), "gateway route matched",
 		slog.String("trace_id", telemetry.TraceID(request.Context())),
@@ -121,6 +142,7 @@ func (handler *Handler) ServeHTTP(writer http.ResponseWriter, request *http.Requ
 		trafficWeight := deploymentState.TrafficWeight
 		depType := handler.tracker.GetDepType()
 		if handler.limiter.IsOverLimit(client, count, depType, instanceCounts, trafficWeight) {
+			handler.recordThrottleRejection(request.Context(), client)
 			handler.logger.WarnContext(
 				request.Context(), "gateway throttle rejected",
 				slog.String("trace_id", telemetry.TraceID(request.Context())),
