@@ -71,7 +71,7 @@ func TestIntegratedGateway_enforces_trace_and_header_trust_boundaries(t *testing
 	// When
 	response, err := server.Client().Do(request)
 	require.NoError(t, err)
-	defer response.Body.Close()
+	defer func() { require.NoError(t, response.Body.Close()) }()
 
 	// Then
 	require.Equal(t, http.StatusNoContent, response.StatusCode)

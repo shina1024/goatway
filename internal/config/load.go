@@ -48,7 +48,7 @@ func Load(dir string) (*Config, error) {
 }
 
 func decodeFile[T any](path string, destination *T) (err error) {
-	r, err := os.Open(path)
+	r, err := os.Open(path) //nolint:gosec // paths are constructed from the trusted configuration directory
 	if err != nil {
 		return &DecodeError{File: path, Err: err}
 	}

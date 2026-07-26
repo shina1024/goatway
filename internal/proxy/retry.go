@@ -215,5 +215,5 @@ func fullJitter(cap time.Duration) time.Duration {
 	if cap <= 0 {
 		return 0
 	}
-	return time.Duration(rand.Int64N(int64(cap) + 1))
+	return time.Duration(rand.Int64N(int64(cap) + 1)) //nolint:gosec // article-faithful retry jitter does not require cryptographic randomness
 }

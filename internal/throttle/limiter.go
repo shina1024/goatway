@@ -18,7 +18,7 @@ type Limiter struct {
 
 // NewLimiter loads the static per-client maximums once from path.
 func NewLimiter(path string) (*Limiter, error) {
-	data, err := os.ReadFile(path)
+	data, err := os.ReadFile(path) //nolint:gosec // the path comes from the trusted local configuration directory
 	if err != nil {
 		return nil, fmt.Errorf("read max concurrent requests file %q: %w", path, err)
 	}

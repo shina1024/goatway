@@ -95,7 +95,7 @@ func testConfigDir(t *testing.T, upstreamURL string) string {
 	port, err := strconv.Atoi(endpoint.Port())
 	require.NoError(t, err)
 
-	files := map[string]string{
+	files := map[string]string{ //nolint:gosec // test fixture intentionally contains a non-secret API token
 		"target_groups.yml":           fmt.Sprintf("catalog:\n  targets:\n    - host: %s\n      port: %d\n      weight: 1\n", endpoint.Hostname(), port),
 		"routes.yml":                  "- from:\n    path: ^/items/(.+)$\n    clients:\n      - public\n    ip_range_groups:\n      - office\n  to:\n    destinations:\n      - target_group: catalog\n        path: /$1\n        weight: 1\n",
 		"api_client_tokens.yml":       "public:\n  - token\n",

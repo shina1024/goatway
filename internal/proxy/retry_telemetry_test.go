@@ -89,7 +89,7 @@ func TestHandler_ForwardWithRetry_creates_one_transfer_span_with_a_client_child_
 	// When
 	response, err := http.Get(server.URL)
 	require.NoError(t, err)
-	defer response.Body.Close()
+	defer func() { require.NoError(t, response.Body.Close()) }()
 	require.NoError(t, <-outcomes)
 
 	// Then

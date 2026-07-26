@@ -137,7 +137,7 @@ func (handler *Handler) Forward(writer http.ResponseWriter, request *http.Reques
 }
 
 // ForwardBuffered performs one outbound attempt with a body that a retry wrapper can replay.
-func (handler *Handler) ForwardBuffered(writer http.ResponseWriter, request *http.Request, attempt BufferedAttempt) (AttemptResult, error) {
+func (handler *Handler) ForwardBuffered(writer http.ResponseWriter, request *http.Request, attempt BufferedAttempt) (result AttemptResult, err error) {
 	input := attempt.Input
 	if input.Group == nil {
 		return AttemptResult{ErrClass: ErrClassOther}, ErrNilTargetGroup
@@ -146,7 +146,6 @@ func (handler *Handler) ForwardBuffered(writer http.ResponseWriter, request *htt
 	if !exists {
 		return AttemptResult{ErrClass: ErrClassOther}, fmt.Errorf("target group %q: %w", input.Group.ID(), ErrMissingRoutePath)
 	}
-	result := AttemptResult{}
 	endpoint := &url.URL{Scheme: input.Target.Scheme(), Host: input.Target.Address(), Path: rewrittenPath, RawQuery: request.URL.RawQuery}
 	outbound, err := http.NewRequestWithContext(request.Context(), request.Method, endpoint.String(), attempt.Body.Open())
 	if err != nil {
@@ -156,11 +155,18 @@ func (handler *Handler) ForwardBuffered(writer http.ResponseWriter, request *htt
 	(&httputil.ProxyRequest{In: request, Out: outbound}).SetXForwarded()
 	outbound.Header.Set(headers.TraceID, telemetry.TraceID(request.Context()))
 	outbound.ContentLength = int64(len(attempt.Body.contents))
-	response, err := handler.ClientFor(input.Target, input.Group.MaxIdleConnsPerHost()).Do(outbound)
+	response, err := handler.ClientFor(input.Target, input.Group.MaxIdleConnsPerHost()).Do(outbound) //nolint:gosec // target is validated gateway configuration, not request-controlled input
 	if err != nil {
 		return handler.failed(request.Context(), result, "execute upstream request", err)
 	}
-	defer response.Body.Close()
+	defer func() {
+		if closeErr := response.Body.Close(); closeErr != nil {
+			if err == nil {
+				result.ErrClass = ClassifyError(closeErr)
+			}
+			err = errors.Join(err, fmt.Errorf("close upstream response: %w", closeErr))
+		}
+	}()
 	responseBody, err := io.ReadAll(response.Body)
 	if err != nil {
 		return handler.failed(request.Context(), result, "read upstream response", err)

@@ -137,7 +137,7 @@ func requestStatus(t *testing.T, server *httptest.Server, method string, path st
 	}
 	response, err := server.Client().Do(request)
 	require.NoError(t, err)
-	defer response.Body.Close()
+	defer func() { require.NoError(t, response.Body.Close()) }()
 	return response.StatusCode
 }
 
@@ -147,7 +147,7 @@ func requestTraceID(t *testing.T, server *httptest.Server, path string) string {
 	require.NoError(t, err)
 	response, err := server.Client().Do(request)
 	require.NoError(t, err)
-	defer response.Body.Close()
+	defer func() { require.NoError(t, response.Body.Close()) }()
 	require.Equal(t, http.StatusNoContent, response.StatusCode)
 	return response.Header.Get(headers.TraceID)
 }

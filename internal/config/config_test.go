@@ -113,7 +113,7 @@ func writeConfigFiles(t *testing.T, files map[string]string) string {
 }
 
 func validConfigFiles() map[string]string {
-	return map[string]string{
+	return map[string]string{ //nolint:gosec // configuration fixture intentionally contains test-only API tokens
 		"target_groups.yml": `catalog:
   targets:
     - host: catalog-a
