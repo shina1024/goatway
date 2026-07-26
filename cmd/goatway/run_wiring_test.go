@@ -17,6 +17,45 @@ import (
 	"goatway/internal/headers"
 )
 
+func Test_run_wires_health_and_readiness_endpoints(t *testing.T) {
+	// Given
+	recorder := tracetest.NewSpanRecorder()
+	provider := sdktrace.NewTracerProvider(sdktrace.WithSpanProcessor(recorder))
+	runtime := &instrumentedRuntime{provider: provider}
+	requestResults := make(chan error, 1)
+	serverHandler := http.Handler(http.NotFoundHandler())
+	server := testServer{
+		listen: func() error {
+			for _, path := range []string{"/healthz", "/readyz"} {
+				request := httptest.NewRequest(http.MethodGet, path, nil)
+				response := httptest.NewRecorder()
+				serverHandler.ServeHTTP(response, request)
+				if response.Code != http.StatusOK {
+					requestResults <- fmt.Errorf("%s response status = %d, want %d", path, response.Code, http.StatusOK)
+					return http.ErrServerClosed
+				}
+			}
+			requestResults <- nil
+			return http.ErrServerClosed
+		},
+		shutdown: func(context.Context) error { return nil },
+	}
+	dependencies := testDependencies(runtime, server)
+	dependencies.newServer = func(_ runSettings, handler http.Handler) httpServer {
+		serverHandler = handler
+		return server
+	}
+
+	// When
+	err := run(context.Background(), testSettings(testConfigDir(t, "http://127.0.0.1:1")), dependencies)
+
+	// Then
+	require.NoError(t, err)
+	require.NoError(t, <-requestResults)
+	require.Empty(t, recorder.Ended())
+	require.Equal(t, 1, runtime.handlerCalls)
+}
+
 func Test_run_wires_explicit_telemetry_through_gateway(t *testing.T) {
 	// Given
 	recorder := tracetest.NewSpanRecorder()
@@ -31,13 +70,14 @@ func Test_run_wires_explicit_telemetry_through_gateway(t *testing.T) {
 	}))
 	defer upstream.Close()
 	requestResults := make(chan error, 1)
+	serverHandler := http.Handler(http.NotFoundHandler())
 	server := testServer{
 		listen: func() error {
 			request := httptest.NewRequest(http.MethodGet, "/items/42", nil)
 			request.RemoteAddr = "127.0.0.1:12345"
 			request.Header.Set(headers.APIToken, "token")
 			response := httptest.NewRecorder()
-			runtime.handler.ServeHTTP(response, request)
+			serverHandler.ServeHTTP(response, request)
 			if response.Code != http.StatusNoContent {
 				requestResults <- fmt.Errorf("gateway response status = %d", response.Code)
 				return http.ErrServerClosed
@@ -50,6 +90,10 @@ func Test_run_wires_explicit_telemetry_through_gateway(t *testing.T) {
 
 	// When
 	dependencies := testDependencies(runtime, server)
+	dependencies.newServer = func(_ runSettings, handler http.Handler) httpServer {
+		serverHandler = handler
+		return server
+	}
 	err := run(context.Background(), testSettings(testConfigDir(t, upstream.URL)), dependencies)
 
 	// Then

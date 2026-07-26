@@ -14,6 +14,7 @@ import (
 
 	"goatway/internal/config"
 	"goatway/internal/gateway"
+	"goatway/internal/health"
 	"goatway/internal/proxy"
 	"goatway/internal/router"
 	"goatway/internal/targetgroup"
@@ -133,7 +134,13 @@ func run(ctx context.Context, settings runSettings, dependencies runDependencies
 		gateway.WithLogger(settings.logger),
 		gateway.WithDevMode(settings.devMode),
 	)
-	server := dependencies.newServer(settings, runtime.HTTPHandler(handler))
+	tracedGateway := runtime.HTTPHandler(handler)
+	mux := http.NewServeMux()
+	healthHandler := health.Handler()
+	mux.Handle("/healthz", healthHandler)
+	mux.Handle("/readyz", healthHandler)
+	mux.Handle("/", tracedGateway)
+	server := dependencies.newServer(settings, mux)
 
 	pollCtx, cancelPoll := context.WithCancel(context.WithoutCancel(ctx))
 	pollDone := make(chan struct{})
