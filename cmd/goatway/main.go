@@ -20,18 +20,30 @@ func execute() int {
 	listenAddr := flag.String("listen", ":8080", "listen address")
 	flag.Parse()
 
-	if envDir := os.Getenv("GOATWAY_CONFIG_DIR"); envDir != "" {
-		*configDir = envDir
-	}
+	configFlagProvided := false
+	flag.Visit(func(visited *flag.Flag) {
+		if visited.Name == "config" {
+			configFlagProvided = true
+		}
+	})
+	resolvedConfigDir := resolveConfigDir(configDirInputs{
+		envDir:         os.Getenv("GOATWAY_CONFIG_DIR"),
+		flagDir:        *configDir,
+		flagProvided:   configFlagProvided,
+		executablePath: os.Executable,
+		userConfigDir:  os.UserConfigDir,
+		dirExists:      directoryExists,
+	})
 	if envAddr := os.Getenv("GOATWAY_LISTEN_ADDR"); envAddr != "" {
 		*listenAddr = envAddr
 	}
 
 	logger := logging.New(os.Getenv("GOATWAY_ENV"), os.Stderr)
+	logger.Info("configuration directory resolved", slog.String("config_dir", resolvedConfigDir))
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	settings := runSettings{
-		configDir:  *configDir,
+		configDir:  resolvedConfigDir,
 		listenAddr: *listenAddr,
 		devMode:    os.Getenv("GOATWAY_ENV") == "dev",
 		logger:     logger,
