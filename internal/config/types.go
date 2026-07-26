@@ -19,6 +19,8 @@ type Config struct {
 	IPRangeGroups         map[string][]string
 	MaxConcurrentRequests map[ClientType]int
 	Deployment            DeploymentConfig
+	Gateway               GatewayConfig
+	gatewayFilePresent    bool
 }
 
 type TargetGroupConfig struct {
@@ -73,6 +75,15 @@ type DeploymentConfig struct {
 	CanaryPods    int    `yaml:"canary_pods"`
 	PrimaryWeight Weight `yaml:"primary_weight"`
 	CanaryWeight  Weight `yaml:"canary_weight"`
+}
+
+type GatewayConfig struct {
+	SchemaVersion int         `yaml:"schema_version"`
+	Proxy         ProxyConfig `yaml:"proxy"`
+}
+
+type ProxyConfig struct {
+	MaxResponseBodySizeBytes int64 `yaml:"max_response_body_size_bytes"`
 }
 
 type DecodeError struct {

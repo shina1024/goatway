@@ -28,6 +28,34 @@ func Test_Config_Load_parses_all_six_files_when_configuration_is_valid(t *testin
 	require.Equal(t, 3, config.Deployment.PrimaryPods)
 }
 
+func Test_Config_Load_uses_gateway_default_when_file_is_absent(t *testing.T) {
+	// Given
+	dir := writeConfigFiles(t, validConfigFiles())
+
+	// When
+	config, err := Load(dir)
+
+	// Then
+	require.NoError(t, err)
+	require.Equal(t, int64(10485760), config.Gateway.Proxy.MaxResponseBodySizeBytes)
+}
+
+func Test_Config_Load_reads_gateway_proxy_setting(t *testing.T) {
+	// Given
+	files := validConfigFiles()
+	files["gateway.yml"] = `schema_version: 1
+proxy:
+  max_response_body_size_bytes: 2097152
+`
+
+	// When
+	config, err := Load(writeConfigFiles(t, files))
+
+	// Then
+	require.NoError(t, err)
+	require.Equal(t, int64(2097152), config.Gateway.Proxy.MaxResponseBodySizeBytes)
+}
+
 func Test_TargetGroupConfig_resolves_zero_values_to_defaults(t *testing.T) {
 	// Given
 	group := TargetGroupConfig{Targets: []TargetConfig{{}, {}}}

@@ -114,3 +114,72 @@ func Test_Config_Load_rejects_invalid_configuration_with_typed_errors(t *testing
 		})
 	}
 }
+
+func Test_Config_Load_rejects_invalid_gateway_configuration_with_typed_errors(t *testing.T) {
+	tests := []struct {
+		name       string
+		gateway    string
+		wantFile   string
+		wantField  string
+		wantRule   string
+		decodeFail bool
+	}{
+		{
+			name:       "unknown YAML field",
+			gateway:    "schema_version: 1\nproxy:\n  unexpected: true\n",
+			decodeFail: true,
+		},
+		{
+			name:      "missing schema version",
+			gateway:   "proxy: {}\n",
+			wantFile:  "gateway.yml",
+			wantField: "schema_version",
+			wantRule:  "schema version must equal 1",
+		},
+		{
+			name:      "empty gateway file",
+			gateway:   "",
+			wantFile:  "gateway.yml",
+			wantField: "schema_version",
+			wantRule:  "schema version must equal 1",
+		},
+		{
+			name:      "unsupported schema version",
+			gateway:   "schema_version: 2\nproxy: {}\n",
+			wantFile:  "gateway.yml",
+			wantField: "schema_version",
+			wantRule:  "schema version must equal 1",
+		},
+		{
+			name:      "negative max response body size",
+			gateway:   "schema_version: 1\nproxy:\n  max_response_body_size_bytes: -1\n",
+			wantFile:  "gateway.yml",
+			wantField: "proxy.max_response_body_size_bytes",
+			wantRule:  "positive max response body size",
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			// Given
+			files := validConfigFiles()
+			files["gateway.yml"] = test.gateway
+
+			// When
+			_, err := Load(writeConfigFiles(t, files))
+
+			// Then
+			require.Error(t, err)
+			if test.decodeFail {
+				var decodeErr *DecodeError
+				require.ErrorAs(t, err, &decodeErr)
+				return
+			}
+			var validationErr *ValidationError
+			require.ErrorAs(t, err, &validationErr)
+			require.Equal(t, test.wantFile, validationErr.File)
+			require.Equal(t, test.wantField, validationErr.Field)
+			require.Equal(t, test.wantRule, validationErr.Rule)
+		})
+	}
+}

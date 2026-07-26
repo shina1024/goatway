@@ -3,10 +3,11 @@ package config
 import "time"
 
 const (
-	defaultConnectTimeout    = time.Second
-	defaultReadTimeout       = 10 * time.Second
-	defaultRetryBaseInterval = 50 * time.Millisecond
-	defaultRetryMaxInterval  = 10 * defaultRetryBaseInterval
+	defaultConnectTimeout                 = time.Second
+	defaultReadTimeout                    = 10 * time.Second
+	defaultRetryBaseInterval              = 50 * time.Millisecond
+	defaultRetryMaxInterval               = 10 * defaultRetryBaseInterval
+	defaultMaxResponseBodySizeBytes int64 = 10485760
 )
 
 func (group TargetGroupConfig) EffectiveMaxTryCount() int {
@@ -50,6 +51,13 @@ func (group TargetGroupConfig) EffectiveRetryMaxInterval() time.Duration {
 		return defaultRetryMaxInterval
 	}
 	return 10 * group.EffectiveRetryBaseInterval()
+}
+
+func (gateway GatewayConfig) withDefaults() GatewayConfig {
+	if gateway.Proxy.MaxResponseBodySizeBytes == 0 {
+		gateway.Proxy.MaxResponseBodySizeBytes = defaultMaxResponseBodySizeBytes
+	}
+	return gateway
 }
 
 func resolveTimeout(target, group Milliseconds, fallback time.Duration) time.Duration {

@@ -22,6 +22,9 @@ func (config Config) Validate() error {
 	if err := config.validateTokens(); err != nil {
 		return err
 	}
+	if err := config.validateGateway(); err != nil {
+		return err
+	}
 	if config.Deployment.PrimaryWeight < 0 || config.Deployment.CanaryWeight < 0 {
 		return invalid("deployment.yml", "weights", "negative weight", "")
 	}
@@ -36,6 +39,17 @@ func (config Config) Validate() error {
 		if maximum < 0 {
 			return invalid("max_concurrent_requests.yml", string(client), "negative max concurrent requests", "")
 		}
+	}
+	return nil
+}
+
+func (config Config) validateGateway() error {
+	gateway := config.Gateway.withDefaults()
+	if config.gatewayFilePresent && gateway.SchemaVersion != 1 {
+		return invalid("gateway.yml", "schema_version", "schema version must equal 1", strconv.Itoa(gateway.SchemaVersion))
+	}
+	if gateway.Proxy.MaxResponseBodySizeBytes <= 0 {
+		return invalid("gateway.yml", "proxy.max_response_body_size_bytes", "positive max response body size", strconv.FormatInt(gateway.Proxy.MaxResponseBodySizeBytes, 10))
 	}
 	return nil
 }

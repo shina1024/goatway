@@ -30,6 +30,17 @@ func Load(dir string) (*Config, error) {
 	if err := decodeFile(filepath.Join(dir, "deployment.yml"), &config.Deployment); err != nil {
 		return nil, fmt.Errorf("load deployment: %w", err)
 	}
+	gatewayPath := filepath.Join(dir, "gateway.yml")
+	gatewayFilePresent := true
+	if err := decodeFile(gatewayPath, &config.Gateway); err != nil {
+		if os.IsNotExist(err) || errors.Is(err, os.ErrNotExist) {
+			gatewayFilePresent = false
+		} else if !errors.Is(err, io.EOF) {
+			return nil, fmt.Errorf("load gateway: %w", err)
+		}
+	}
+	config.gatewayFilePresent = gatewayFilePresent
+	config.Gateway = config.Gateway.withDefaults()
 	if err := config.Validate(); err != nil {
 		return nil, fmt.Errorf("validate configuration: %w", err)
 	}
