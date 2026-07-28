@@ -171,6 +171,27 @@ func Test_Config_Load_rejects_invalid_gateway_configuration_with_typed_errors(t 
 			wantField: "trusted_proxies[0]",
 			wantRule:  "invalid CIDR",
 		},
+		{
+			name:      "negative circuit breaker failure threshold",
+			gateway:   "schema_version: 1\ncircuit_breaker:\n  failure_threshold: -1\n",
+			wantFile:  "gateway.yml",
+			wantField: "circuit_breaker.failure_threshold",
+			wantRule:  "non-negative failure threshold",
+		},
+		{
+			name:      "negative circuit breaker open interval",
+			gateway:   "schema_version: 1\ncircuit_breaker:\n  open_interval_ms: -1\n",
+			wantFile:  "gateway.yml",
+			wantField: "circuit_breaker.open_interval_ms",
+			wantRule:  "non-negative open interval",
+		},
+		{
+			name:      "negative circuit breaker half-open max requests",
+			gateway:   "schema_version: 1\ncircuit_breaker:\n  half_open_max_requests: -1\n",
+			wantFile:  "gateway.yml",
+			wantField: "circuit_breaker.half_open_max_requests",
+			wantRule:  "non-negative half-open max requests",
+		},
 	}
 
 	for _, test := range tests {

@@ -13,6 +13,7 @@ import (
 	"go.opentelemetry.io/otel/propagation"
 	"go.opentelemetry.io/otel/trace"
 
+	"goatway/internal/circuitbreaker"
 	"goatway/internal/config"
 	"goatway/internal/gateway"
 	"goatway/internal/health"
@@ -113,6 +114,19 @@ func run(ctx context.Context, settings runSettings, dependencies runDependencies
 	if err != nil {
 		return fmt.Errorf("build target group registry: %w", err)
 	}
+	var circuitBreakers *circuitbreaker.Registry
+	if configuration.Gateway.CircuitBreaker.Enabled {
+		groupIDs := make([]string, 0, len(configuration.TargetGroups))
+		for groupID := range configuration.TargetGroups {
+			groupIDs = append(groupIDs, string(groupID))
+		}
+		breakerConfig := configuration.Gateway.CircuitBreaker
+		circuitBreakers = circuitbreaker.NewRegistry(groupIDs, circuitbreaker.Config{
+			FailureThreshold:    breakerConfig.FailureThreshold,
+			OpenInterval:        time.Duration(breakerConfig.OpenIntervalMS) * time.Millisecond,
+			HalfOpenMaxRequests: breakerConfig.HalfOpenMaxRequests,
+		})
+	}
 	routes, err := router.New(*configuration)
 	if err != nil {
 		return fmt.Errorf("build router: %w", err)
@@ -139,6 +153,7 @@ func run(ctx context.Context, settings runSettings, dependencies runDependencies
 		proxy.WithTelemetry(runtime.TracerProvider(), runtime.TraceContext()),
 		proxy.WithMetrics(metrics),
 		proxy.WithMaxResponseBodySize(configuration.Gateway.Proxy.MaxResponseBodySizeBytes),
+		proxy.WithCircuitBreakers(circuitBreakers),
 	)
 	handler := gateway.NewHandler(
 		configuration,

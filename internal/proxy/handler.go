@@ -13,6 +13,7 @@ import (
 	"os"
 	"time"
 
+	"goatway/internal/circuitbreaker"
 	"goatway/internal/headers"
 	"goatway/internal/router"
 	"goatway/internal/targetgroup"
@@ -100,6 +101,7 @@ func withRetryWaiter(waiter func(context.Context, time.Duration) error) Option {
 // Handler owns reusable HTTP clients and performs one forwarding attempt at a time.
 type Handler struct {
 	clients             clientCache
+	circuitBreakers     *circuitbreaker.Registry
 	logger              *slog.Logger
 	retryWaiter         func(context.Context, time.Duration) error
 	maxResponseBodySize int64
@@ -110,6 +112,15 @@ type Handler struct {
 func WithMetrics(metrics *telemetry.Metrics) Option {
 	return func(handler *Handler) {
 		handler.metrics = metrics
+	}
+}
+
+// WithCircuitBreakers sets the per-target-group circuit breaker registry.
+func WithCircuitBreakers(registry *circuitbreaker.Registry) Option {
+	return func(handler *Handler) {
+		if registry != nil {
+			handler.circuitBreakers = registry
+		}
 	}
 }
 

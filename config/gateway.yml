@@ -5,3 +5,9 @@ proxy:
 
 throttle:
   # fail_policy: fail_open
+
+circuit_breaker:
+  # enabled: false
+  # failure_threshold: 5
+  # open_interval_ms: 30000
+  # half_open_max_requests: 1

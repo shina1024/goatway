@@ -13,6 +13,7 @@ import (
 	"go.opentelemetry.io/otel/metric"
 	"go.opentelemetry.io/otel/trace"
 
+	"goatway/internal/circuitbreaker"
 	"goatway/internal/router"
 	"goatway/internal/targetgroup"
 )
@@ -121,8 +122,20 @@ func (handler *Handler) ForwardWithRetry(writer http.ResponseWriter, request *ht
 		return AttemptResult{ErrClass: ClassifyError(err)}, err
 	}
 	attempts := retrySchedule(input.Group, request.Method)
+	skipped := 0
+	lastResult := AttemptResult{}
+	var lastResponse *bufferedResponse
+	var lastAttemptErr error
 	for index, planned := range attempts {
 		targetGroup = string(planned.group.ID())
+		var breaker *circuitbreaker.Breaker
+		if handler.circuitBreakers != nil {
+			breaker = handler.circuitBreakers.Breaker(targetGroup)
+			if breaker != nil && !breaker.Allow() {
+				skipped++
+				continue
+			}
+		}
 		attemptCount++
 		response := newBufferedResponse()
 		result, attemptErr := handler.ForwardBuffered(response, request, BufferedAttempt{
@@ -133,6 +146,12 @@ func (handler *Handler) ForwardWithRetry(writer http.ResponseWriter, request *ht
 			},
 			Body: body,
 		})
+		if breaker != nil {
+			recordCircuitBreakerOutcome(breaker, result, attemptErr)
+		}
+		lastResult = result
+		lastResponse = response
+		lastAttemptErr = attemptErr
 		if retryable(planned.group, result, attemptErr) && index+1 < len(attempts) {
 			if handler.metrics != nil {
 				handler.metrics.Retries.Add(request.Context(), 1, metric.WithAttributes(attribute.String("target_group", targetGroup)))
@@ -159,7 +178,36 @@ func (handler *Handler) ForwardWithRetry(writer http.ResponseWriter, request *ht
 		}
 		return result, nil
 	}
+	if len(attempts) > 0 && skipped == len(attempts) {
+		http.Error(writer, http.StatusText(http.StatusServiceUnavailable), http.StatusServiceUnavailable)
+		return AttemptResult{StatusCode: http.StatusServiceUnavailable}, nil
+	}
+	if lastResponse != nil {
+		if lastAttemptErr != nil {
+			status := http.StatusBadGateway
+			if lastResult.ErrClass == ErrClassTimeout {
+				status = http.StatusGatewayTimeout
+			}
+			http.Error(writer, http.StatusText(status), status)
+			lastResult.StatusCode = status
+			return lastResult, lastAttemptErr
+		}
+		if err := lastResponse.writeTo(writer); err != nil {
+			return handler.failed(request.Context(), lastResult, "write selected retry response", err)
+		}
+		return lastResult, nil
+	}
 	return AttemptResult{ErrClass: ErrClassOther}, fmt.Errorf("schedule retries for target group %q: no targets", input.Group.ID())
+}
+
+func recordCircuitBreakerOutcome(breaker *circuitbreaker.Breaker, result AttemptResult, attemptErr error) {
+	if result.ErrClass == ErrClassTimeout || (result.StatusCode >= http.StatusInternalServerError && result.StatusCode < 600) {
+		breaker.RecordFailure()
+		return
+	}
+	if attemptErr == nil && result.StatusCode < http.StatusInternalServerError {
+		breaker.RecordSuccess()
+	}
 }
 
 func retrySchedule(group *targetgroup.TargetGroup, method string) []retryAttempt {

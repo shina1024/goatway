@@ -83,10 +83,11 @@ type DeploymentConfig struct {
 }
 
 type GatewayConfig struct {
-	SchemaVersion  int            `yaml:"schema_version"`
-	Proxy          ProxyConfig    `yaml:"proxy"`
-	Throttle       ThrottleConfig `yaml:"throttle"`
-	TrustedProxies []string       `yaml:"trusted_proxies"`
+	SchemaVersion  int                  `yaml:"schema_version"`
+	Proxy          ProxyConfig          `yaml:"proxy"`
+	Throttle       ThrottleConfig       `yaml:"throttle"`
+	CircuitBreaker CircuitBreakerConfig `yaml:"circuit_breaker"`
+	TrustedProxies []string             `yaml:"trusted_proxies"`
 }
 
 type ProxyConfig struct {
@@ -95,6 +96,13 @@ type ProxyConfig struct {
 
 type ThrottleConfig struct {
 	FailPolicy string `yaml:"fail_policy"`
+}
+
+type CircuitBreakerConfig struct {
+	Enabled             bool `yaml:"enabled"`
+	FailureThreshold    int  `yaml:"failure_threshold"`
+	OpenIntervalMS      int  `yaml:"open_interval_ms"`
+	HalfOpenMaxRequests int  `yaml:"half_open_max_requests"`
 }
 
 type DecodeError struct {
