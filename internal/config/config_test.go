@@ -28,6 +28,64 @@ func Test_Config_Load_parses_all_six_files_when_configuration_is_valid(t *testin
 	require.Equal(t, 3, config.Deployment.PrimaryPods)
 }
 
+func Test_Config_LoadWithOptions_uses_default_tokens_when_options_are_empty(t *testing.T) {
+	// Given
+	dir := writeConfigFiles(t, validConfigFiles())
+
+	// When
+	configuration, err := LoadWithOptions(dir, LoadOptions{})
+
+	// Then
+	require.NoError(t, err)
+	require.Equal(t, []string{"token-a"}, configuration.APIClientTokens[ClientType("public")])
+}
+
+func Test_Config_LoadWithOptions_rejects_external_token_decode_failures_with_typed_errors(t *testing.T) {
+	tests := []struct {
+		name string
+		opts LoadOptions
+	}{
+		{
+			name: "malformed YAML",
+			opts: LoadOptions{APITokensYAML: "public: ["},
+		},
+		{
+			name: "missing external file",
+			opts: LoadOptions{APITokensPath: filepath.Join(t.TempDir(), "missing.yml")},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			// Given
+			dir := writeConfigFiles(t, validConfigFiles())
+
+			// When
+			_, err := LoadWithOptions(dir, test.opts)
+
+			// Then
+			require.Error(t, err)
+			var decodeErr *DecodeError
+			require.ErrorAs(t, err, &decodeErr)
+		})
+	}
+}
+
+func Test_Config_LoadWithOptions_validates_externally_sourced_tokens(t *testing.T) {
+	// Given
+	dir := writeConfigFiles(t, validConfigFiles())
+	opts := LoadOptions{APITokensYAML: "public:\n  - duplicate\nbackoffice:\n  - duplicate\n"} //nolint:gosec // test fixture intentionally contains non-secret API tokens
+
+	// When
+	_, err := LoadWithOptions(dir, opts)
+
+	// Then
+	require.Error(t, err)
+	var validationErr *ValidationError
+	require.ErrorAs(t, err, &validationErr)
+	require.Equal(t, "duplicate token", validationErr.Rule)
+}
+
 func Test_Config_Load_uses_gateway_default_when_file_is_absent(t *testing.T) {
 	// Given
 	dir := writeConfigFiles(t, validConfigFiles())

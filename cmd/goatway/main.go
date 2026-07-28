@@ -8,11 +8,19 @@ import (
 	"os/signal"
 	"syscall"
 
+	"goatway/internal/config"
 	"goatway/internal/logging"
 )
 
 func main() {
 	os.Exit(execute())
+}
+
+func loadOptionsFromEnv() config.LoadOptions {
+	return config.LoadOptions{
+		APITokensPath: os.Getenv("GOATWAY_API_CLIENT_TOKENS_FILE"),
+		APITokensYAML: os.Getenv("GOATWAY_API_CLIENT_TOKENS_YAML"),
+	}
 }
 
 func execute() int {
@@ -48,7 +56,7 @@ func execute() int {
 		devMode:    os.Getenv("GOATWAY_ENV") == "dev",
 		logger:     logger,
 	}
-	if err := run(ctx, settings, productionDependencies()); err != nil {
+	if err := run(ctx, settings, productionDependenciesWithOptions(loadOptionsFromEnv())); err != nil {
 		logger.Error("goatway failed", slog.Any("err", err))
 		return 1
 	}

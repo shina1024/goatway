@@ -58,12 +58,18 @@ type runDependencies struct {
 }
 
 func productionDependencies() runDependencies {
+	return productionDependenciesWithOptions(config.LoadOptions{})
+}
+
+func productionDependenciesWithOptions(loadOptions config.LoadOptions) runDependencies {
 	return runDependencies{
 		configFromEnv: telemetry.ConfigFromEnv,
 		newRuntime: func(ctx context.Context, telemetryConfig telemetry.Config) (telemetryRuntime, error) {
 			return telemetry.New(ctx, telemetryConfig)
 		},
-		loadConfig:     config.Load,
+		loadConfig: func(dir string) (*config.Config, error) {
+			return config.LoadWithOptions(dir, loadOptions)
+		},
 		newFileFetcher: func(path string) throttle.Fetcher { return throttle.NewFileFetcher(path) },
 		newServer: func(settings runSettings, handler http.Handler) httpServer {
 			return &http.Server{

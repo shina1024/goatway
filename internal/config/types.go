@@ -23,6 +23,11 @@ type Config struct {
 	gatewayFilePresent    bool
 }
 
+type LoadOptions struct {
+	APITokensPath string
+	APITokensYAML string
+}
+
 type TargetGroupConfig struct {
 	Targets              []TargetConfig `yaml:"targets"`
 	Scheme               string         `yaml:"scheme"`
