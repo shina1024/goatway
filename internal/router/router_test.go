@@ -3,6 +3,7 @@ package router
 import (
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"testing"
 	"time"
 
@@ -104,6 +105,31 @@ func TestRouter_Route_returnsAuthErrors_whenRouteRequiresClient(t *testing.T) {
 			require.ErrorIs(t, err, test.wantErr)
 		})
 	}
+}
+
+func TestRouter_Route_returnsConfiguredClient_whenTokenIsAllowed(t *testing.T) {
+	// Given
+	router := newTestRouter(t, testRoute("^/sample$", []config.ClientType{"public"}, nil, testDestinations()), withTokens())
+	req := httptest.NewRequest(http.MethodGet, "/sample", nil)
+	req.Header.Set(headers.APIToken, "public-token")
+
+	// When
+	match, err := router.Route(req)
+
+	// Then
+	require.NoError(t, err)
+	require.Equal(t, ClientType("public"), match.ClientType)
+}
+
+func TestRouter_New_buildsDigestTokenIndex(t *testing.T) {
+	// Given
+	router := newTestRouter(t, testRoute("^/sample$", []config.ClientType{"public"}, nil, testDestinations()), withTokens())
+
+	// When
+	tokenStoreType := reflect.TypeOf(router.tokenToClient)
+
+	// Then
+	require.Equal(t, "tokenIndex", tokenStoreType.Name())
 }
 
 func TestRouter_Route_returnsEmptyClient_whenRouteHasNoClientConstraint(t *testing.T) {
