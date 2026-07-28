@@ -78,9 +78,10 @@ type DeploymentConfig struct {
 }
 
 type GatewayConfig struct {
-	SchemaVersion int            `yaml:"schema_version"`
-	Proxy         ProxyConfig    `yaml:"proxy"`
-	Throttle      ThrottleConfig `yaml:"throttle"`
+	SchemaVersion  int            `yaml:"schema_version"`
+	Proxy          ProxyConfig    `yaml:"proxy"`
+	Throttle       ThrottleConfig `yaml:"throttle"`
+	TrustedProxies []string       `yaml:"trusted_proxies"`
 }
 
 type ProxyConfig struct {

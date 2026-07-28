@@ -28,9 +28,21 @@ func resolveIPRanges(groupNames []string, groups map[string][]string) ([]*net.IP
 	return ranges, nil
 }
 
-func (route Route) allowIP(request *http.Request) error {
+func (route Route) allowIP(request *http.Request, resolver ClientIPResolver) error {
 	if !route.from.hasIPRangeConstraint {
 		return nil
+	}
+	if resolver.hasTrustedProxies() {
+		ip, err := resolver.Resolve(request)
+		if err != nil {
+			return ErrIPNotAllowed
+		}
+		for _, allowedRange := range route.from.ipRanges {
+			if allowedRange.Contains(ip) {
+				return nil
+			}
+		}
+		return ErrIPNotAllowed
 	}
 
 	host, _, err := net.SplitHostPort(request.RemoteAddr)

@@ -11,6 +11,11 @@ import (
 
 // New compiles immutable routes from validated configuration.
 func New(configuration config.Config) (*Router, error) {
+	clientIPResolver, err := NewClientIPResolver(configuration.Gateway.TrustedProxies)
+	if err != nil {
+		return nil, fmt.Errorf("create client IP resolver: %w", err)
+	}
+
 	routes := make([]Route, 0, len(configuration.Routes))
 	for index, configuredRoute := range configuration.Routes {
 		route, err := compileRoute(configuredRoute, configuration.IPRangeGroups)
@@ -21,8 +26,9 @@ func New(configuration config.Config) (*Router, error) {
 	}
 
 	return &Router{
-		routes:        routes,
-		tokenToClient: tokenClients(configuration.APIClientTokens),
+		routes:           routes,
+		tokenToClient:    tokenClients(configuration.APIClientTokens),
+		clientIPResolver: clientIPResolver,
 	}, nil
 }
 
@@ -77,7 +83,7 @@ func (router *Router) Route(request *http.Request) (Match, error) {
 		if err != nil {
 			return Match{}, err
 		}
-		if err := route.allowIP(request); err != nil {
+		if err := route.allowIP(request, router.clientIPResolver); err != nil {
 			return Match{}, err
 		}
 

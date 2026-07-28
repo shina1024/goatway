@@ -55,6 +55,7 @@ type Match struct {
 
 // Router routes requests using configuration compiled at construction time.
 type Router struct {
-	routes        []Route
-	tokenToClient map[string]ClientType
+	routes           []Route
+	tokenToClient    map[string]ClientType
+	clientIPResolver ClientIPResolver
 }

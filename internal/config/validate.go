@@ -56,6 +56,11 @@ func (config Config) validateGateway() error {
 	if gateway.Throttle.FailPolicy != string(throttle.FailOpen) && gateway.Throttle.FailPolicy != string(throttle.FailClosed) {
 		return invalid("gateway.yml", "throttle.fail_policy", "fail policy must be fail_open or fail_closed", gateway.Throttle.FailPolicy)
 	}
+	for index, cidr := range gateway.TrustedProxies {
+		if _, _, err := net.ParseCIDR(cidr); err != nil {
+			return invalid("gateway.yml", "trusted_proxies["+strconv.Itoa(index)+"]", "invalid CIDR", cidr)
+		}
+	}
 	return nil
 }
 

@@ -164,6 +164,13 @@ func Test_Config_Load_rejects_invalid_gateway_configuration_with_typed_errors(t 
 			wantField: "throttle.fail_policy",
 			wantRule:  "fail policy must be fail_open or fail_closed",
 		},
+		{
+			name:      "invalid trusted proxy CIDR",
+			gateway:   "schema_version: 1\ntrusted_proxies:\n  - not-a-cidr\n",
+			wantFile:  "gateway.yml",
+			wantField: "trusted_proxies[0]",
+			wantRule:  "invalid CIDR",
+		},
 	}
 
 	for _, test := range tests {
