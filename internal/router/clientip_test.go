@@ -137,3 +137,27 @@ func TestRouter_Route_ignoresClientIPResolution_whenRouteHasNoIPRangeConstraint(
 	// Then
 	require.NoError(t, err)
 }
+
+func TestRouter_Route_evaluatesEveryForwardedHeaderLine_whenTrustedProxyAppendsSeparateLine(t *testing.T) {
+	// Given: a trusted proxy forwards the attacker-supplied X-Forwarded-For as one
+	// header line and appends the true client address as a separate header line.
+	router := newTestRouter(
+		t,
+		testRoute("^/sample$", nil, []string{"office"}, testDestinations()),
+		withRanges(),
+		func(configuration *config.Config) {
+			configuration.Gateway.TrustedProxies = []string{"192.168.0.0/24"}
+		},
+	)
+	req := httptest.NewRequest(http.MethodGet, "/sample", nil)
+	req.RemoteAddr = "192.168.0.10:8080"
+	req.Header.Add("X-Forwarded-For", "10.0.0.7")
+	req.Header.Add("X-Forwarded-For", "172.16.0.4")
+
+	// When
+	_, err := router.Route(req)
+
+	// Then: the rightmost untrusted hop is the true client 172.16.0.4 (outside the
+	// office range), so the spoofed first header line must not be honoured.
+	require.ErrorIs(t, err, ErrIPNotAllowed)
+}

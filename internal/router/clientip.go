@@ -39,7 +39,7 @@ func (resolver ClientIPResolver) Resolve(request *http.Request) (net.IP, error) 
 		return remoteIP, nil
 	}
 
-	forwardedFor := request.Header.Get("X-Forwarded-For")
+	forwardedFor := strings.Join(request.Header.Values("X-Forwarded-For"), ",")
 	if forwardedFor == "" {
 		return remoteIP, nil
 	}
