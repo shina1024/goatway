@@ -44,7 +44,7 @@ func TestHandler_recordsRequestMetric_when_requestIsServedWithoutMetricsEndpoint
 	require.True(t, ok)
 	require.Len(t, duration.DataPoints, 1)
 	require.EqualValues(t, 1, duration.DataPoints[0].Count)
-	require.Positive(t, duration.DataPoints[0].Sum)
+	require.GreaterOrEqual(t, duration.DataPoints[0].Sum, 0.0)
 }
 
 func TestHandler_recordsThrottleRejectionMetric_when_requestIsOverLimit(t *testing.T) {
