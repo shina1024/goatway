@@ -8,6 +8,7 @@ import (
 
 	"goatway/internal/config"
 	"goatway/internal/headers"
+	"goatway/internal/httperr"
 	"goatway/internal/proxy"
 	"goatway/internal/router"
 	"goatway/internal/targetgroup"
@@ -203,6 +204,6 @@ func (handler *Handler) writeRouteError(writer http.ResponseWriter, request *htt
 }
 
 func (handler *Handler) respond(writer http.ResponseWriter, request *http.Request, status int) {
-	writer.WriteHeader(status)
+	httperr.Write(writer, request.Context(), status, httperr.Code(status))
 	handler.logger.InfoContext(request.Context(), "gateway response completed", slog.String("trace_id", telemetry.TraceID(request.Context())), slog.Int("status", status))
 }

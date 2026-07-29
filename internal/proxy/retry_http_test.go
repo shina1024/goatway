@@ -1,6 +1,7 @@
 package proxy
 
 import (
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -11,6 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"goatway/internal/config"
+	"goatway/internal/httperr"
 )
 
 func TestHandler_ForwardWithRetry_returns_success_from_next_target_when_server_error(t *testing.T) {
@@ -211,7 +213,10 @@ func TestHandler_ForwardWithRetry_returns_bad_gateway_without_retry_when_respons
 	require.Equal(t, http.StatusBadGateway, recorder.Code)
 	require.Error(t, err)
 	require.Equal(t, ErrClassOther, result.ErrClass)
-	require.Equal(t, "Bad Gateway\n", recorder.Body.String())
+	var envelope httperr.Envelope
+	require.NoError(t, json.Unmarshal(recorder.Body.Bytes(), &envelope))
+	require.Equal(t, http.StatusBadGateway, envelope.Status)
+	require.Equal(t, "bad_gateway", envelope.Code)
 	require.Equal(t, int64(1), firstCalls.Load())
 	require.Zero(t, secondCalls.Load())
 }

@@ -14,6 +14,7 @@ import (
 	"go.opentelemetry.io/otel/trace"
 
 	"goatway/internal/circuitbreaker"
+	"goatway/internal/httperr"
 	"goatway/internal/router"
 	"goatway/internal/targetgroup"
 )
@@ -169,7 +170,7 @@ func (handler *Handler) ForwardWithRetry(writer http.ResponseWriter, request *ht
 			if result.ErrClass == ErrClassTimeout {
 				status = http.StatusGatewayTimeout
 			}
-			http.Error(writer, http.StatusText(status), status)
+			httperr.Write(writer, request.Context(), status, httperr.Code(status))
 			result.StatusCode = status
 			return result, attemptErr
 		}
@@ -179,7 +180,7 @@ func (handler *Handler) ForwardWithRetry(writer http.ResponseWriter, request *ht
 		return result, nil
 	}
 	if len(attempts) > 0 && skipped == len(attempts) {
-		http.Error(writer, http.StatusText(http.StatusServiceUnavailable), http.StatusServiceUnavailable)
+		httperr.Write(writer, request.Context(), http.StatusServiceUnavailable, httperr.Code(http.StatusServiceUnavailable))
 		return AttemptResult{StatusCode: http.StatusServiceUnavailable}, nil
 	}
 	if lastResponse != nil {
@@ -188,7 +189,7 @@ func (handler *Handler) ForwardWithRetry(writer http.ResponseWriter, request *ht
 			if lastResult.ErrClass == ErrClassTimeout {
 				status = http.StatusGatewayTimeout
 			}
-			http.Error(writer, http.StatusText(status), status)
+			httperr.Write(writer, request.Context(), status, httperr.Code(status))
 			lastResult.StatusCode = status
 			return lastResult, lastAttemptErr
 		}
