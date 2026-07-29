@@ -198,7 +198,7 @@ func (config Config) validateTokens() error {
 		for _, token := range tokens {
 			owner, exists := owners[token]
 			if exists && owner != clientType {
-				return invalid("api_client_tokens.yml", string(clientType), "duplicate token", token)
+				return invalid("api_client_tokens.yml", string(clientType), "duplicate token", "<redacted>")
 			}
 			owners[token] = clientType
 		}

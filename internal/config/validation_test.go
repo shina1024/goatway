@@ -218,3 +218,23 @@ func Test_Config_Load_rejects_invalid_gateway_configuration_with_typed_errors(t 
 		})
 	}
 }
+
+func Test_Config_Load_redacts_duplicate_token_validation_error(t *testing.T) {
+	// Given
+	const secret = "super-secret-token"
+	files := validConfigFiles()
+	files["api_client_tokens.yml"] = strings.ReplaceAll(files["api_client_tokens.yml"], "token-a", secret)
+	files["api_client_tokens.yml"] = strings.ReplaceAll(files["api_client_tokens.yml"], "token-b", secret)
+
+	// When
+	_, err := Load(writeConfigFiles(t, files))
+
+	// Then
+	require.Error(t, err)
+	var validationErr *ValidationError
+	require.ErrorAs(t, err, &validationErr)
+	require.Equal(t, "api_client_tokens.yml", validationErr.File)
+	require.Equal(t, "duplicate token", validationErr.Rule)
+	require.Equal(t, "<redacted>", validationErr.Value)
+	require.NotContains(t, validationErr.Error(), secret)
+}
