@@ -29,7 +29,7 @@ goatway is a lightweight gateway that handles:
 | API token authentication | [Intro](https://techblog.zozo.com/entry/zozotown-api-gateway-intro) | `internal/router/auth.go` |
 | IP range restrictions | [Intro](https://techblog.zozo.com/entry/zozotown-api-gateway-intro) | `internal/router/iprange.go` |
 | Retry basics (retry cases: `server_error`, `timeout`) | [Intro](https://techblog.zozo.com/entry/zozotown-api-gateway-intro) | `internal/proxy/retry.go` |
-| Backoff & jitter | [Intro](https://techblog.zozo.com/entry/zozotown-api-gateway-intro) | `internal/proxy/retry.go` (`retryBackoffCap`, `fullJitter`) |
+| Backoff & jitter | [Intro](https://techblog.zozo.com/entry/zozotown-api-gateway-intro) | `internal/proxy/retry_schedule.go` (`retryBackoffCap`, `fullJitter`) |
 | Timeouts (connect / read / idle) | [Intro](https://techblog.zozo.com/entry/zozotown-api-gateway-intro) | `internal/proxy/client.go` + `internal/config/defaults.go` |
 | Gateway-issued trace ID | [Intro](https://techblog.zozo.com/entry/zozotown-api-gateway-intro) | `internal/gateway/handler.go` + `internal/proxy/handler.go` |
 | 460 (client disconnect) | [Intro](https://techblog.zozo.com/entry/zozotown-api-gateway-intro) | `internal/proxy/handler.go` (`failed` method) |
@@ -96,6 +96,13 @@ $env:GOATWAY_LISTEN_ADDR = ":8080"
 $env:GOATWAY_ENV = "dev"          # text logs when dev, JSON otherwise
 ```
 
+API client tokens can be supplied outside the config directory. Inline YAML takes precedence over a file, and either source replaces `config/api_client_tokens.yml`:
+
+```powershell
+$env:GOATWAY_API_CLIENT_TOKENS_FILE = "C:\secrets\api_client_tokens.yml"
+# Or: $env:GOATWAY_API_CLIENT_TOKENS_YAML = "SampleClient:`n  - secret-token"
+```
+
 As a goatway-specific observability adaptation, tracing works without an exporter. To export spans, point goatway at an OTLP/gRPC endpoint, normally an OpenTelemetry Collector:
 
 ```powershell
@@ -104,7 +111,7 @@ $env:OTEL_EXPORTER_OTLP_TRACES_PROTOCOL = "grpc"
 go run ./cmd/goatway
 ```
 
-`OTEL_EXPORTER_OTLP_ENDPOINT` and `OTEL_EXPORTER_OTLP_PROTOCOL` are supported as fallbacks. Only the `grpc` protocol is accepted. With no endpoint, goatway still creates server, transfer, and client spans for trace correlation but exports nothing. The Collector configuration selects the backend, such as Tempo, Jaeger, or Datadog; goatway contains no vendor SDK dependency.
+RED metrics use `OTEL_EXPORTER_OTLP_METRICS_ENDPOINT` and `OTEL_EXPORTER_OTLP_METRICS_PROTOCOL`. `OTEL_EXPORTER_OTLP_ENDPOINT` and `OTEL_EXPORTER_OTLP_PROTOCOL` are supported as fallbacks for both signals. Only the `grpc` protocol is accepted. With no endpoint, goatway still creates server, transfer, and client spans for trace correlation but exports nothing. The Collector configuration selects the backend, such as Tempo, Jaeger, or Datadog; goatway contains no vendor SDK dependency.
 
 ### 3. Stop
 
@@ -136,6 +143,17 @@ curl -i http://127.0.0.1:8080/sample/hello -H "Goatway-API-Token: invalid"
 curl -i http://127.0.0.1:8080/notfound -H "Goatway-API-Token: abcde12345"
 ```
 
+Gateway-generated errors use an `application/json` body with `status`, `code`, `message`, and `trace_id` fields while preserving the HTTP status code. Upstream response bodies are forwarded unchanged.
+
+### Health and readiness
+
+```powershell
+curl -i http://127.0.0.1:8080/healthz
+curl -i http://127.0.0.1:8080/readyz
+```
+
+Both endpoints return HTTP 200 without exposing configuration or dependency details.
+
 ### Trace ID propagation (goatway OpenTelemetry adaptation)
 
 ```powershell
@@ -161,10 +179,10 @@ The ZOZO articles do not prescribe these rules. Goatway handles request and resp
 | `Goatway-Trace-ID` | Client value ignored | Set from the active OTel TraceID | Gateway value is authoritative; backend value is stripped |
 | `traceparent`, `tracestate` | Extracted by the server TraceContext propagator | Raw values are removed, then the current client span context is injected | Backend values are stripped |
 | `baggage` | Not propagated | Stripped | Stripped |
-| `Forwarded`, `X-Forwarded-*` | Treated as untrusted | Removed, then `X-Forwarded-For`, `X-Forwarded-Host`, and `X-Forwarded-Proto` are rebuilt from the direct connection for each attempt | Not special-cased; backend response values pass through as ordinary end-to-end headers |
+| `Forwarded`, `X-Forwarded-*` | `Forwarded` is ignored. `X-Forwarded-For` affects IP restrictions only when the direct peer matches `gateway.yml` `trusted_proxies` | Removed, then `X-Forwarded-For`, `X-Forwarded-Host`, and `X-Forwarded-Proto` are rebuilt from the direct connection for each attempt | Not special-cased; backend response values pass through as ordinary end-to-end headers |
 | `Set-Cookie` | Not applicable | Not applicable | Stripped from upstream responses |
 
-Hop-by-hop headers are removed in both directions. Trusted-proxy interpretation is intentionally not implemented. Forwarding-header rebuilding applies to upstream requests only; response headers are never used as client identity by goatway.
+Hop-by-hop headers are removed in both directions. With no configured trusted proxies, IP restrictions use `RemoteAddr` and ignore incoming forwarding headers. For a trusted direct peer, goatway evaluates every `X-Forwarded-For` header line from right to left and selects the first untrusted address. Forwarding-header rebuilding applies to upstream requests only; response headers are never used as client identity by goatway.
 
 ### 429 (throttling) demo
 
@@ -187,7 +205,22 @@ curl -i http://127.0.0.1:8080/sample/hello -H "Goatway-API-Token: abcde12345" -H
 
 ## Configuration Reference
 
-Configuration is loaded from six files under `config/`.
+Configuration is loaded from seven files under `config/`. `gateway.yml` is optional for backward compatibility; when present, it must declare `schema_version: 1`.
+
+### gateway.yml
+
+Controls gateway-level hardening settings.
+
+| Field | Type | Description |
+|---|---|---|
+| `schema_version` | int | Required when the file exists; currently `1` |
+| `proxy.max_response_body_size_bytes` | int | Maximum buffered upstream response body; default 10 MiB |
+| `throttle.fail_policy` | string | `fail_open` (default) or `fail_closed` when deployment-state fetching degrades |
+| `circuit_breaker.enabled` | bool | Enables one breaker per target group; default `false` |
+| `circuit_breaker.failure_threshold` | int | Consecutive failures before opening; default `5` |
+| `circuit_breaker.open_interval_ms` | int | Open interval before half-open probes; default `30000` |
+| `circuit_breaker.half_open_max_requests` | int | Maximum probes admitted per half-open window; default `1` |
+| `trusted_proxies` | array | Trusted proxy CIDRs allowed to supply client IPs through `X-Forwarded-For`; default empty |
 
 ### target_groups.yml
 
@@ -221,7 +254,7 @@ Routing rules from incoming paths to target groups.
 
 ### api_client_tokens.yml
 
-Valid tokens per client type.
+Valid tokens per client type. `GOATWAY_API_CLIENT_TOKENS_FILE` or `GOATWAY_API_CLIENT_TOKENS_YAML` can replace this file at startup; inline YAML has highest precedence.
 
 ```yaml
 SampleClient:
@@ -264,13 +297,13 @@ The following are mentioned in the articles but omitted or replaced in this repo
 - **Member authentication**: Mentioned in the articles but not implemented in this codebase
 - **AWS Secrets Manager / Athena / Datadog SDK / Sentry / PagerDuty / EKS**: Operational infrastructure integrations. A separately configured OTLP Collector may still export traces to Datadog or another backend
 - **TLS termination and production hardening**: The example server is plain HTTP and is not a production edge gateway
-- **Trusted proxy support**: IP restrictions use `RemoteAddr` directly. `Forwarded` and `X-Forwarded-For` are intentionally ignored, so deploy behind a proxy only after adding an explicit trusted-proxy model
+- **General proxy trust policy**: Configured CIDRs support trusted `X-Forwarded-For` interpretation for IP restrictions. Broader edge-proxy policy and the standardized `Forwarded` header remain out of scope
 - **Real Kubernetes / Istio clients**: Deployment state is read from a local YAML file instead
 - **Prism / nginx mocks**: Mock tools used in the articles. Replaced here with `httptest` and local files
-- **Health checks and circuit breakers**: Discussed as future availability work in the article, but not part of this reproduction
+- **Active health checking and availability automation**: `/healthz`, `/readyz`, and passive per-target-group circuit breakers are implemented; active upstream probes, alerting, and orchestration integration remain out of scope
 - **Operational alerts and `Retry-After` guidance**: The simplified gateway returns HTTP 429 without alerting integrations or a computed retry window
-- **Streaming and body limits**: Requests and upstream responses are fully buffered in memory. Add explicit size limits or streaming before production use
-- **Production-grade secrets and authentication**: The example token is public test data. Real deployments need managed secrets, TLS, stronger authentication, and token rotation
+- **Streaming**: Requests and upstream responses are buffered with size limits; streaming remains out of scope
+- **Managed secrets and production authentication**: Tokens can be loaded from an external file or environment YAML, but managed secret stores, TLS, stronger authentication, and token rotation remain out of scope
 
 ## Tests & CI
 
@@ -298,6 +331,7 @@ On Windows, `-race` requires a GCC-compatible compiler and may not be available 
 ├── cmd/goatway/                 # Entrypoint and owned server lifecycle
 ├── config/                      # Example configuration files
 │   ├── target_groups.yml
+│   ├── gateway.yml
 │   ├── routes.yml
 │   ├── api_client_tokens.yml
 │   ├── ip_range_groups.yml
