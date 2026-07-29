@@ -40,8 +40,9 @@ const (
 
 // AttemptResult describes the single upstream attempt without making a retry decision.
 type AttemptResult struct {
-	StatusCode int
-	ErrClass   ErrClass
+	StatusCode     int
+	ErrClass       ErrClass
+	breakerFailure bool
 }
 
 // ForwardInput identifies one target and the route metadata used to build its request.
@@ -187,6 +188,7 @@ func (handler *Handler) ForwardBuffered(writer http.ResponseWriter, request *htt
 	outbound.ContentLength = int64(len(attempt.Body.contents))
 	response, err := handler.ClientFor(input.Target, input.Group.MaxIdleConnsPerHost()).Do(outbound) //nolint:gosec // target is validated gateway configuration, not request-controlled input
 	if err != nil {
+		result.breakerFailure = request.Context().Err() == nil
 		return handler.failed(request.Context(), result, "execute upstream request", err)
 	}
 	defer func() {
@@ -199,6 +201,7 @@ func (handler *Handler) ForwardBuffered(writer http.ResponseWriter, request *htt
 	}()
 	responseBody, err := readResponseBody(response.Body, handler.maxResponseBodySize)
 	if err != nil {
+		result.breakerFailure = !errors.Is(err, ErrResponseTooLarge) && request.Context().Err() == nil
 		return handler.failed(request.Context(), result, "read upstream response", err)
 	}
 	if err := request.Context().Err(); err != nil {
