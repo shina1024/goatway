@@ -30,6 +30,7 @@ type Breaker struct {
 	openInterval   time.Duration
 	halfOpenMax    int
 	halfOpenActive int
+	halfOpenTotal  int
 	openedAt       time.Time
 	now            func() time.Time
 }
@@ -59,12 +60,14 @@ func (breaker *Breaker) Allow() bool {
 		}
 		breaker.state = stateHalfOpen
 		breaker.halfOpenActive = 0
+		breaker.halfOpenTotal = 0
 	}
 	if breaker.state == stateHalfOpen {
-		if breaker.halfOpenActive >= breaker.halfOpenMax {
+		if breaker.halfOpenTotal >= breaker.halfOpenMax {
 			return false
 		}
 		breaker.halfOpenActive++
+		breaker.halfOpenTotal++
 	}
 	return true
 }
@@ -74,9 +77,18 @@ func (breaker *Breaker) RecordSuccess() {
 	breaker.mu.Lock()
 	defer breaker.mu.Unlock()
 
-	breaker.state = stateClosed
-	breaker.failures = 0
-	breaker.halfOpenActive = 0
+	if breaker.state == stateOpen {
+		return
+	}
+	if breaker.state == stateHalfOpen {
+		if breaker.halfOpenActive > 0 {
+			breaker.halfOpenActive--
+		}
+		if breaker.halfOpenActive > 0 {
+			return
+		}
+	}
+	breaker.close()
 }
 
 // RecordFailure increments failures or reopens a failed half-open probe.
@@ -101,5 +113,13 @@ func (breaker *Breaker) open() {
 	breaker.state = stateOpen
 	breaker.failures = 0
 	breaker.halfOpenActive = 0
+	breaker.halfOpenTotal = 0
 	breaker.openedAt = breaker.now()
+}
+
+func (breaker *Breaker) close() {
+	breaker.state = stateClosed
+	breaker.failures = 0
+	breaker.halfOpenActive = 0
+	breaker.halfOpenTotal = 0
 }
