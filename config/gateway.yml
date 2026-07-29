@@ -11,3 +11,6 @@ circuit_breaker:
   # failure_threshold: 5
   # open_interval_ms: 30000
   # half_open_max_requests: 1
+
+# trusted_proxies:
+#   - 10.0.0.0/8
