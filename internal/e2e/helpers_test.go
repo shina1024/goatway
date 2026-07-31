@@ -19,7 +19,7 @@ import (
 
 	"goatway/internal/config"
 	"goatway/internal/gateway"
-	"goatway/internal/headers"
+	"goatway/internal/header"
 	"goatway/internal/proxy"
 	"goatway/internal/router"
 	"goatway/internal/targetgroup"
@@ -55,7 +55,7 @@ func newGateway(t *testing.T, value fixture) *httptest.Server {
 	limiter, err := throttle.NewLimiter(filepath.Join(dir, "max_concurrent_requests.yml"))
 	require.NoError(t, err)
 	tracker := throttle.NewDeploymentTracker()
-	require.NoError(t, tracker.SetDepType())
+	require.NoError(t, tracker.SetDeploymentType())
 	runtime, err := telemetry.New(t.Context(), telemetry.Config{})
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, runtime.Shutdown(context.Background())) })
@@ -133,7 +133,7 @@ func requestStatus(t *testing.T, server *httptest.Server, method string, path st
 	request, err := http.NewRequestWithContext(t.Context(), method, server.URL+path, nil)
 	require.NoError(t, err)
 	if token != "" {
-		request.Header.Set(headers.APIToken, token)
+		request.Header.Set(header.APIToken, token)
 	}
 	response, err := server.Client().Do(request)
 	require.NoError(t, err)
@@ -149,7 +149,7 @@ func requestTraceID(t *testing.T, server *httptest.Server, path string) string {
 	require.NoError(t, err)
 	defer func() { require.NoError(t, response.Body.Close()) }()
 	require.Equal(t, http.StatusNoContent, response.StatusCode)
-	return response.Header.Get(headers.TraceID)
+	return response.Header.Get(header.TraceID)
 }
 
 func receive[T any](t *testing.T, channel <-chan T, message string) T {

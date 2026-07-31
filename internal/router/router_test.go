@@ -8,7 +8,7 @@ import (
 	"time"
 
 	"goatway/internal/config"
-	"goatway/internal/headers"
+	"goatway/internal/header"
 
 	"github.com/stretchr/testify/require"
 )
@@ -96,7 +96,7 @@ func TestRouter_Route_returnsAuthErrors_whenRouteRequiresClient(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			// Given
 			req := httptest.NewRequest(http.MethodGet, "/sample", nil)
-			req.Header.Set(headers.APIToken, test.token)
+			req.Header.Set(header.APIToken, test.token)
 
 			// When
 			_, err := router.Route(req)
@@ -111,7 +111,7 @@ func TestRouter_Route_returnsConfiguredClient_whenTokenIsAllowed(t *testing.T) {
 	// Given
 	router := newTestRouter(t, testRoute("^/sample$", []config.ClientType{"public"}, nil, testDestinations()), withTokens())
 	req := httptest.NewRequest(http.MethodGet, "/sample", nil)
-	req.Header.Set(headers.APIToken, "public-token")
+	req.Header.Set(header.APIToken, "public-token")
 
 	// When
 	match, err := router.Route(req)
@@ -212,7 +212,7 @@ func TestWithRequestTimeOverride_usesHeaderOnlyInDevelopment(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			// Given
 			req := httptest.NewRequest(http.MethodGet, "/sample", nil)
-			req.Header.Set(headers.RequestTime, test.header)
+			req.Header.Set(header.RequestTime, test.header)
 
 			// When
 			updated, err := WithRequestTimeOverride(req, test.devMode)

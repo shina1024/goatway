@@ -7,7 +7,7 @@ import (
 	"slices"
 
 	"goatway/internal/config"
-	"goatway/internal/headers"
+	"goatway/internal/header"
 )
 
 type tokenEntry struct {
@@ -48,7 +48,7 @@ func (route Route) authorize(request *http.Request, tokens tokenIndex) (ClientTy
 		return "", nil
 	}
 
-	token := request.Header.Get(headers.APIToken)
+	token := request.Header.Get(header.APIToken)
 	if token == "" {
 		return "", ErrMissingToken
 	}

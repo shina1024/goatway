@@ -11,7 +11,7 @@ import (
 	"go.opentelemetry.io/otel/propagation"
 	"go.opentelemetry.io/otel/trace"
 
-	"goatway/internal/headers"
+	"goatway/internal/header"
 )
 
 func TestIntegratedGateway_enforces_trace_and_header_trust_boundaries(t *testing.T) {
@@ -30,7 +30,7 @@ func TestIntegratedGateway_enforces_trace_and_header_trust_boundaries(t *testing
 	upstreamHeaders := make(chan http.Header, 1)
 	backend := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		upstreamHeaders <- request.Header.Clone()
-		writer.Header().Set(headers.TraceID, backendTrace)
+		writer.Header().Set(header.TraceID, backendTrace)
 		writer.Header().Set("traceparent", backendParent)
 		writer.Header().Set("tracestate", "vendor=backend")
 		writer.Header().Set("baggage", "tenant=backend")
@@ -52,11 +52,11 @@ func TestIntegratedGateway_enforces_trace_and_header_trust_boundaries(t *testing
 	request, err := http.NewRequestWithContext(t.Context(), http.MethodGet, server.URL+"/protected", nil)
 	require.NoError(t, err)
 	request.Host = gatewayHost
-	request.Header.Set(headers.APIToken, clientToken)
-	request.Header.Set(headers.TraceID, spoofedTrace)
+	request.Header.Set(header.APIToken, clientToken)
+	request.Header.Set(header.TraceID, spoofedTrace)
 	request.Header.Set("Authorization", "Bearer client-spoof")
 	request.Header.Set("Cookie", "session=client-spoof")
-	request.Header.Set(headers.RequestTime, "2030-01-02T03:04:05Z")
+	request.Header.Set(header.RequestTime, "2030-01-02T03:04:05Z")
 	request.Header.Set("traceparent", traceparent)
 	request.Header.Set("tracestate", tracestate)
 	request.Header.Set("baggage", "tenant=client-spoof")
@@ -75,7 +75,7 @@ func TestIntegratedGateway_enforces_trace_and_header_trust_boundaries(t *testing
 
 	// Then
 	require.Equal(t, http.StatusNoContent, response.StatusCode)
-	require.Equal(t, traceID, response.Header.Get(headers.TraceID))
+	require.Equal(t, traceID, response.Header.Get(header.TraceID))
 	require.Equal(t, "forwarded", response.Header.Get("X-Backend-Safe"))
 	require.Empty(t, response.Header.Get("traceparent"))
 	require.Empty(t, response.Header.Get("tracestate"))
@@ -84,7 +84,7 @@ func TestIntegratedGateway_enforces_trace_and_header_trust_boundaries(t *testing
 	require.Empty(t, response.Cookies())
 
 	got := receive(t, upstreamHeaders, "backend did not receive the protected request")
-	require.Equal(t, traceID, got.Get(headers.TraceID))
+	require.Equal(t, traceID, got.Get(header.TraceID))
 	propagated := propagation.TraceContext{}.Extract(t.Context(), propagation.HeaderCarrier(got))
 	spanContext := trace.SpanContextFromContext(propagated)
 	require.True(t, spanContext.IsValid())
@@ -94,10 +94,10 @@ func TestIntegratedGateway_enforces_trace_and_header_trust_boundaries(t *testing
 	require.Equal(t, tracestate, spanContext.TraceState().String())
 
 	for _, name := range []string{
-		headers.APIToken,
+		header.APIToken,
 		"Authorization",
 		"Cookie",
-		headers.RequestTime,
+		header.RequestTime,
 		"baggage",
 		"Forwarded",
 	} {

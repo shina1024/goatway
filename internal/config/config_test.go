@@ -99,7 +99,7 @@ func Test_Config_Load_uses_gateway_default_when_file_is_absent(t *testing.T) {
 	require.Equal(t, "fail_open", config.Gateway.Throttle.FailPolicy)
 	require.False(t, config.Gateway.CircuitBreaker.Enabled)
 	require.Equal(t, 5, config.Gateway.CircuitBreaker.FailureThreshold)
-	require.Equal(t, 30000, config.Gateway.CircuitBreaker.OpenIntervalMS)
+	require.Equal(t, 30000, config.Gateway.CircuitBreaker.OpenIntervalMs)
 	require.Equal(t, 1, config.Gateway.CircuitBreaker.HalfOpenMaxRequests)
 }
 
@@ -131,7 +131,7 @@ func Test_Config_Load_accepts_disabled_circuit_breaker(t *testing.T) {
 	require.NoError(t, err)
 	require.False(t, config.Gateway.CircuitBreaker.Enabled)
 	require.Equal(t, 5, config.Gateway.CircuitBreaker.FailureThreshold)
-	require.Equal(t, 30000, config.Gateway.CircuitBreaker.OpenIntervalMS)
+	require.Equal(t, 30000, config.Gateway.CircuitBreaker.OpenIntervalMs)
 	require.Equal(t, 1, config.Gateway.CircuitBreaker.HalfOpenMaxRequests)
 }
 
@@ -147,7 +147,7 @@ func Test_Config_Load_reads_enabled_circuit_breaker_settings(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, config.Gateway.CircuitBreaker.Enabled)
 	require.Equal(t, 3, config.Gateway.CircuitBreaker.FailureThreshold)
-	require.Equal(t, 1000, config.Gateway.CircuitBreaker.OpenIntervalMS)
+	require.Equal(t, 1000, config.Gateway.CircuitBreaker.OpenIntervalMs)
 	require.Equal(t, 2, config.Gateway.CircuitBreaker.HalfOpenMaxRequests)
 }
 

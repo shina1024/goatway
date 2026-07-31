@@ -36,11 +36,11 @@ type DeploymentState struct {
 
 // DeploymentTracker owns the local deployment type and fetched deployment state.
 type DeploymentTracker struct {
-	mu            sync.RWMutex
-	state         DeploymentState
-	fetchErrCount int
-	depType       string
-	logger        *slog.Logger
+	mu             sync.RWMutex
+	state          DeploymentState
+	fetchErrCount  int
+	deploymentType string
+	logger         *slog.Logger
 }
 
 // DeploymentTrackerOption configures a deployment tracker.
@@ -68,36 +68,36 @@ func NewDeploymentTracker(options ...DeploymentTrackerOption) *DeploymentTracker
 }
 
 const (
-	primaryDepType = "primary"
-	canaryDepType  = "canary"
+	primaryDeployment = "primary"
+	canaryDeployment  = "canary"
 )
 
-// DetectDepType reproduces the article's hostname convention.
-func DetectDepType(hostname string) string {
-	if strings.Contains(hostname, canaryDepType) {
-		return canaryDepType
+// DetectDeploymentType reproduces the article's hostname convention.
+func DetectDeploymentType(hostname string) string {
+	if strings.Contains(hostname, canaryDeployment) {
+		return canaryDeployment
 	}
-	return primaryDepType
+	return primaryDeployment
 }
 
-// SetDepType records the current deployment type from the local hostname.
-func (t *DeploymentTracker) SetDepType() error {
+// SetDeploymentType records the current deployment type from the local hostname.
+func (t *DeploymentTracker) SetDeploymentType() error {
 	hostname, err := os.Hostname()
 	if err != nil {
 		return fmt.Errorf("read hostname: %w", err)
 	}
 
 	t.mu.Lock()
-	t.depType = DetectDepType(hostname)
+	t.deploymentType = DetectDeploymentType(hostname)
 	t.mu.Unlock()
 	return nil
 }
 
-// GetDepType returns the deployment type most recently set by SetDepType.
-func (t *DeploymentTracker) GetDepType() string {
+// DeploymentType returns the deployment type most recently set by SetDeploymentType.
+func (t *DeploymentTracker) DeploymentType() string {
 	t.mu.RLock()
 	defer t.mu.RUnlock()
-	return t.depType
+	return t.deploymentType
 }
 
 // FetchError marks a recoverable fetch failure for errors.As callers.
@@ -119,8 +119,6 @@ func (e *FetchError) Unwrap() error {
 	return e.Err
 }
 
-type fetchError = FetchError
-
 // TerminatingError marks a terminating workload, which ends polling.
 type TerminatingError struct {
 	Err error
@@ -139,5 +137,3 @@ func (e *TerminatingError) Unwrap() error {
 	}
 	return e.Err
 }
-
-type terminatingError = TerminatingError

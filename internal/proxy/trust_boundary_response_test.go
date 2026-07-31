@@ -12,7 +12,7 @@ import (
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 
 	"goatway/internal/config"
-	"goatway/internal/headers"
+	"goatway/internal/header"
 	"goatway/internal/router"
 )
 
@@ -56,7 +56,7 @@ func TestHandler_Forward_preserves_authoritative_response_trace_when_upstream_se
 	upstreamHeaders := make(chan http.Header, 1)
 	backend := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		upstreamHeaders <- request.Header.Clone()
-		writer.Header().Set(headers.TraceID, "upstream-trace")
+		writer.Header().Set(header.TraceID, "upstream-trace")
 		writer.Header().Set("traceparent", "00-0123456789abcdef0123456789abcdef-0123456789abcdef-01")
 		writer.Header().Set("tracestate", "vendor=upstream")
 		writer.Header().Set("baggage", "tenant=upstream")
@@ -65,12 +65,12 @@ func TestHandler_Forward_preserves_authoritative_response_trace_when_upstream_se
 	defer backend.Close()
 	group, target := testTarget(t, backend.URL, time.Second)
 	request := httptest.NewRequest(http.MethodGet, "/", nil).WithContext(requestContext)
-	request.Header.Set(headers.TraceID, "client-trace")
+	request.Header.Set(header.TraceID, "client-trace")
 	request.Header.Set("traceparent", "00-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-bbbbbbbbbbbbbbbb-01")
 	request.Header.Set("tracestate", "vendor=client")
 	request.Header.Set("baggage", "tenant=client")
 	recorder := httptest.NewRecorder()
-	recorder.Header().Set(headers.TraceID, traceID)
+	recorder.Header().Set(header.TraceID, traceID)
 
 	// When
 	_, err := NewHandler(WithTelemetry(provider, propagation.TraceContext{})).Forward(recorder, request, ForwardInput{
@@ -82,11 +82,11 @@ func TestHandler_Forward_preserves_authoritative_response_trace_when_upstream_se
 	// Then
 	require.NoError(t, err)
 	gotUpstream := <-upstreamHeaders
-	require.Equal(t, traceID, gotUpstream.Get(headers.TraceID))
+	require.Equal(t, traceID, gotUpstream.Get(header.TraceID))
 	require.NotEqual(t, "00-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-bbbbbbbbbbbbbbbb-01", gotUpstream.Get("traceparent"))
 	require.Empty(t, gotUpstream.Get("tracestate"))
 	require.Empty(t, gotUpstream.Get("baggage"))
-	require.Equal(t, traceID, recorder.Header().Get(headers.TraceID))
+	require.Equal(t, traceID, recorder.Header().Get(header.TraceID))
 	require.Empty(t, recorder.Header().Get("traceparent"))
 	require.Empty(t, recorder.Header().Get("tracestate"))
 	require.Empty(t, recorder.Header().Get("baggage"))

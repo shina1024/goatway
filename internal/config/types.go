@@ -101,7 +101,7 @@ type ThrottleConfig struct {
 type CircuitBreakerConfig struct {
 	Enabled             bool `yaml:"enabled"`
 	FailureThreshold    int  `yaml:"failure_threshold"`
-	OpenIntervalMS      int  `yaml:"open_interval_ms"`
+	OpenIntervalMs      int  `yaml:"open_interval_ms"`
 	HalfOpenMaxRequests int  `yaml:"half_open_max_requests"`
 }
 

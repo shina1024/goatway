@@ -6,7 +6,7 @@ import (
 	"net/http"
 	"time"
 
-	"goatway/internal/headers"
+	"goatway/internal/header"
 )
 
 type requestTimeContextKey struct{}
@@ -18,7 +18,7 @@ func WithRequestTimeOverride(request *http.Request, devMode bool) (*http.Request
 		return request, nil
 	}
 
-	values := request.Header.Values(headers.RequestTime)
+	values := request.Header.Values(header.RequestTime)
 	if len(values) == 0 {
 		return request, nil
 	}

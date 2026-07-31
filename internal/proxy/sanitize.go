@@ -4,7 +4,7 @@ import (
 	"net/http"
 	"strings"
 
-	"goatway/internal/headers"
+	"goatway/internal/header"
 )
 
 func copyForwardableHeaders(destination, source http.Header) {
@@ -13,9 +13,9 @@ func copyForwardableHeaders(destination, source http.Header) {
 	}
 }
 
-func filteredRequestHeaders(header http.Header) http.Header {
-	result := withoutHopByHopHeaders(header)
-	removeHeaders(result, headers.APIToken, "Authorization", "Cookie", headers.RequestTime, headers.TraceID, "traceparent", "tracestate", "baggage", "Forwarded")
+func filteredRequestHeaders(h http.Header) http.Header {
+	result := withoutHopByHopHeaders(h)
+	removeHeaders(result, header.APIToken, "Authorization", "Cookie", header.RequestTime, header.TraceID, "traceparent", "tracestate", "baggage", "Forwarded")
 	for name := range result {
 		if strings.HasPrefix(strings.ToLower(name), "x-forwarded-") {
 			delete(result, name)
@@ -24,14 +24,14 @@ func filteredRequestHeaders(header http.Header) http.Header {
 	return result
 }
 
-func filteredResponseHeaders(header http.Header) http.Header {
-	result := withoutHopByHopHeaders(header)
-	removeHeaders(result, "Set-Cookie", headers.TraceID, "traceparent", "tracestate", "baggage")
+func filteredResponseHeaders(h http.Header) http.Header {
+	result := withoutHopByHopHeaders(h)
+	removeHeaders(result, "Set-Cookie", header.TraceID, "traceparent", "tracestate", "baggage")
 	return result
 }
 
-func withoutHopByHopHeaders(header http.Header) http.Header {
-	result := header.Clone()
+func withoutHopByHopHeaders(h http.Header) http.Header {
+	result := h.Clone()
 	var connectionValues []string
 	for name, values := range result {
 		if strings.EqualFold(name, "Connection") {
@@ -47,11 +47,11 @@ func withoutHopByHopHeaders(header http.Header) http.Header {
 	return result
 }
 
-func removeHeaders(header http.Header, names ...string) {
+func removeHeaders(h http.Header, names ...string) {
 	for _, name := range names {
-		for existingName := range header {
+		for existingName := range h {
 			if strings.EqualFold(existingName, name) {
-				delete(header, existingName)
+				delete(h, existingName)
 			}
 		}
 	}

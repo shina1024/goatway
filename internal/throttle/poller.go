@@ -35,7 +35,7 @@ func (t *DeploymentTracker) fetch(ctx context.Context, fetcher Fetcher) error {
 			return nil
 		}
 
-		var terminatingErr *terminatingError
+		var terminatingErr *TerminatingError
 		if errors.As(err, &terminatingErr) {
 			return err
 		}
@@ -59,7 +59,7 @@ func (t *DeploymentTracker) fetch(ctx context.Context, fetcher Fetcher) error {
 }
 
 func isFetchError(err error) bool {
-	var fetchErr *fetchError
+	var fetchErr *FetchError
 	return errors.As(err, &fetchErr)
 }
 

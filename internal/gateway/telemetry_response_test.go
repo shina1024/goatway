@@ -9,7 +9,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"goatway/internal/headers"
+	"goatway/internal/header"
 )
 
 func TestHandler_sets_trace_id_before_local_route_rejection(t *testing.T) {
@@ -26,7 +26,7 @@ func TestHandler_sets_trace_id_before_local_route_rejection(t *testing.T) {
 
 	// Then
 	require.Equal(t, http.StatusNotFound, recorder.Code)
-	require.Equal(t, traceID, recorder.Header().Get(headers.TraceID))
+	require.Equal(t, traceID, recorder.Header().Get(header.TraceID))
 }
 
 func TestHandler_sets_trace_id_before_upstream_failure(t *testing.T) {
@@ -42,14 +42,14 @@ func TestHandler_sets_trace_id_before_upstream_failure(t *testing.T) {
 
 	// Then
 	require.Equal(t, http.StatusBadGateway, recorder.Code)
-	require.Equal(t, traceID, recorder.Header().Get(headers.TraceID))
+	require.Equal(t, traceID, recorder.Header().Get(header.TraceID))
 }
 
 func TestHandler_preserves_authoritative_trace_id_when_backend_spoofs_trace_headers(t *testing.T) {
 	// Given
 	const traceID = "8bf92f3577b34da6a3ce929d0e0e4736"
 	upstream := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
-		writer.Header().Set(headers.TraceID, "backend-spoof")
+		writer.Header().Set(header.TraceID, "backend-spoof")
 		writer.Header().Set("traceparent", "00-0123456789abcdef0123456789abcdef-0123456789abcdef-01")
 		writer.Header().Set("tracestate", "vendor=backend")
 		writer.WriteHeader(http.StatusNoContent)
@@ -58,7 +58,7 @@ func TestHandler_preserves_authoritative_trace_id_when_backend_spoofs_trace_head
 	host, port := targetAddress(t, upstream.URL)
 	handler := newTestHandler(t, testConfig(t, host, port), "public: 1\n", false)
 	request := gatewayRequest()
-	request.Header.Set(headers.TraceID, "client-spoof")
+	request.Header.Set(header.TraceID, "client-spoof")
 	request.Header.Set("traceparent", "00-"+traceID+"-00f067aa0ba902b7-01")
 	recorder := httptest.NewRecorder()
 
@@ -67,7 +67,7 @@ func TestHandler_preserves_authoritative_trace_id_when_backend_spoofs_trace_head
 
 	// Then
 	require.Equal(t, http.StatusNoContent, recorder.Code)
-	require.Equal(t, traceID, recorder.Header().Get(headers.TraceID))
+	require.Equal(t, traceID, recorder.Header().Get(header.TraceID))
 	require.Empty(t, recorder.Header().Get("traceparent"))
 	require.Empty(t, recorder.Header().Get("tracestate"))
 }
@@ -89,7 +89,7 @@ func TestHandler_logs_active_trace_id(t *testing.T) {
 		WithLogger(slog.New(slog.NewJSONHandler(&logs, nil))),
 	)
 	request := gatewayRequest()
-	request.Header.Set(headers.TraceID, "client-spoof")
+	request.Header.Set(header.TraceID, "client-spoof")
 	request.Header.Set("traceparent", "00-"+traceID+"-00f067aa0ba902b7-01")
 	recorder := httptest.NewRecorder()
 
@@ -97,6 +97,6 @@ func TestHandler_logs_active_trace_id(t *testing.T) {
 	handler.ServeHTTP(recorder, request)
 
 	// Then
-	require.Equal(t, traceID, recorder.Header().Get(headers.TraceID))
+	require.Equal(t, traceID, recorder.Header().Get(header.TraceID))
 	require.Contains(t, logs.String(), `"trace_id":"`+traceID+`"`)
 }

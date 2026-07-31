@@ -13,7 +13,7 @@ func Test_IsOverLimit_returns_article_threshold_decisions(t *testing.T) {
 		limits         string
 		client         string
 		count          int
-		depType        string
+		deploymentType string
 		instanceCounts InstanceCounts
 		trafficWeight  TrafficWeight
 		want           bool
@@ -23,7 +23,7 @@ func Test_IsOverLimit_returns_article_threshold_decisions(t *testing.T) {
 			limits:         "premium: 300\n",
 			client:         "premium",
 			count:          15,
-			depType:        "primary",
+			deploymentType: "primary",
 			instanceCounts: InstanceCounts{Primary: 20},
 			trafficWeight:  TrafficWeight{Primary: 100},
 			want:           false,
@@ -33,7 +33,7 @@ func Test_IsOverLimit_returns_article_threshold_decisions(t *testing.T) {
 			limits:         "premium: 300\n",
 			client:         "premium",
 			count:          16,
-			depType:        "primary",
+			deploymentType: "primary",
 			instanceCounts: InstanceCounts{Primary: 20},
 			trafficWeight:  TrafficWeight{Primary: 100},
 			want:           true,
@@ -43,7 +43,7 @@ func Test_IsOverLimit_returns_article_threshold_decisions(t *testing.T) {
 			limits:         "premium: 100\n",
 			client:         "premium",
 			count:          10,
-			depType:        "primary",
+			deploymentType: "primary",
 			instanceCounts: InstanceCounts{Primary: 9, Canary: 1},
 			trafficWeight:  TrafficWeight{Primary: 90, Canary: 10},
 			want:           false,
@@ -53,7 +53,7 @@ func Test_IsOverLimit_returns_article_threshold_decisions(t *testing.T) {
 			limits:         "premium: 100\n",
 			client:         "premium",
 			count:          11,
-			depType:        "primary",
+			deploymentType: "primary",
 			instanceCounts: InstanceCounts{Primary: 9, Canary: 1},
 			trafficWeight:  TrafficWeight{Primary: 90, Canary: 10},
 			want:           true,
@@ -63,7 +63,7 @@ func Test_IsOverLimit_returns_article_threshold_decisions(t *testing.T) {
 			limits:         "premium: 100\n",
 			client:         "premium",
 			count:          10,
-			depType:        "canary",
+			deploymentType: "canary",
 			instanceCounts: InstanceCounts{Primary: 9, Canary: 1},
 			trafficWeight:  TrafficWeight{Primary: 90, Canary: 10},
 			want:           false,
@@ -73,7 +73,7 @@ func Test_IsOverLimit_returns_article_threshold_decisions(t *testing.T) {
 			limits:         "premium: 100\n",
 			client:         "premium",
 			count:          11,
-			depType:        "canary",
+			deploymentType: "canary",
 			instanceCounts: InstanceCounts{Primary: 9, Canary: 1},
 			trafficWeight:  TrafficWeight{Primary: 90, Canary: 10},
 			want:           true,
@@ -83,7 +83,7 @@ func Test_IsOverLimit_returns_article_threshold_decisions(t *testing.T) {
 			limits:         "premium: 1\n",
 			client:         "premium",
 			count:          2,
-			depType:        "primary",
+			deploymentType: "primary",
 			instanceCounts: InstanceCounts{Primary: 100, Canary: 1},
 			trafficWeight:  TrafficWeight{Primary: 1, Canary: 99},
 			want:           true,
@@ -93,7 +93,7 @@ func Test_IsOverLimit_returns_article_threshold_decisions(t *testing.T) {
 			limits:         "premium: 100\n",
 			client:         "unknown",
 			count:          1000,
-			depType:        "primary",
+			deploymentType: "primary",
 			instanceCounts: InstanceCounts{Primary: 1},
 			trafficWeight:  TrafficWeight{Primary: 100},
 			want:           false,
@@ -103,26 +103,26 @@ func Test_IsOverLimit_returns_article_threshold_decisions(t *testing.T) {
 			limits:         "premium: 100\n",
 			client:         "premium",
 			count:          1000,
-			depType:        "",
+			deploymentType: "",
 			instanceCounts: InstanceCounts{Primary: 1},
 			trafficWeight:  TrafficWeight{Primary: 100},
 			want:           false,
 		},
 		{
-			name:          "allows when no instances are available",
-			limits:        "premium: 100\n",
-			client:        "premium",
-			count:         1000,
-			depType:       "primary",
-			trafficWeight: TrafficWeight{Primary: 100},
-			want:          false,
+			name:           "allows when no instances are available",
+			limits:         "premium: 100\n",
+			client:         "premium",
+			count:          1000,
+			deploymentType: "primary",
+			trafficWeight:  TrafficWeight{Primary: 100},
+			want:           false,
 		},
 		{
 			name:           "allows when no traffic weights are available",
 			limits:         "premium: 100\n",
 			client:         "premium",
 			count:          1000,
-			depType:        "primary",
+			deploymentType: "primary",
 			instanceCounts: InstanceCounts{Primary: 1},
 			want:           false,
 		},
@@ -131,7 +131,7 @@ func Test_IsOverLimit_returns_article_threshold_decisions(t *testing.T) {
 			limits:         "premium: 100\n",
 			client:         "premium",
 			count:          1000,
-			depType:        "canary",
+			deploymentType: "canary",
 			instanceCounts: InstanceCounts{Primary: 9},
 			trafficWeight:  TrafficWeight{Primary: 90, Canary: 10},
 			want:           false,
@@ -141,7 +141,7 @@ func Test_IsOverLimit_returns_article_threshold_decisions(t *testing.T) {
 			limits:         "premium: 2147483647\n",
 			client:         "premium",
 			count:          21474837,
-			depType:        "primary",
+			deploymentType: "primary",
 			instanceCounts: InstanceCounts{Primary: 1, Canary: 1},
 			trafficWeight:  TrafficWeight{Primary: 100, Canary: 0},
 			want:           false,
@@ -156,7 +156,7 @@ func Test_IsOverLimit_returns_article_threshold_decisions(t *testing.T) {
 			require.NoError(t, err)
 
 			// When
-			got := limiter.IsOverLimit(tt.client, tt.count, tt.depType, tt.instanceCounts, tt.trafficWeight)
+			got := limiter.IsOverLimit(tt.client, tt.count, tt.deploymentType, tt.instanceCounts, tt.trafficWeight)
 
 			// Then
 			require.Equal(t, tt.want, got)
@@ -189,15 +189,15 @@ func Test_IsOverLimit_defaults_to_fail_open_for_degraded_state(t *testing.T) {
 func Test_IsOverLimit_fail_closed_rejects_every_degraded_state(t *testing.T) {
 	tests := []struct {
 		name           string
-		depType        string
+		deploymentType string
 		instanceCounts InstanceCounts
 		trafficWeight  TrafficWeight
 	}{
 		{name: "missing deployment type", instanceCounts: InstanceCounts{Primary: 1}, trafficWeight: TrafficWeight{Primary: 100}},
-		{name: "zero total pods", depType: "primary", trafficWeight: TrafficWeight{Primary: 100}},
-		{name: "zero total weights", depType: "primary", instanceCounts: InstanceCounts{Primary: 1}},
-		{name: "selected primary has zero pods", depType: "primary", instanceCounts: InstanceCounts{Canary: 1}, trafficWeight: TrafficWeight{Primary: 100}},
-		{name: "selected canary has zero pods", depType: "canary", instanceCounts: InstanceCounts{Primary: 1}, trafficWeight: TrafficWeight{Primary: 90, Canary: 10}},
+		{name: "zero total pods", deploymentType: "primary", trafficWeight: TrafficWeight{Primary: 100}},
+		{name: "zero total weights", deploymentType: "primary", instanceCounts: InstanceCounts{Primary: 1}},
+		{name: "selected primary has zero pods", deploymentType: "primary", instanceCounts: InstanceCounts{Canary: 1}, trafficWeight: TrafficWeight{Primary: 100}},
+		{name: "selected canary has zero pods", deploymentType: "canary", instanceCounts: InstanceCounts{Primary: 1}, trafficWeight: TrafficWeight{Primary: 90, Canary: 10}},
 	}
 
 	for _, test := range tests {
@@ -206,7 +206,7 @@ func Test_IsOverLimit_fail_closed_rejects_every_degraded_state(t *testing.T) {
 			limiter := NewLimiterFromLimits(map[string]int{"premium": 100}, WithFailPolicy(FailClosed))
 
 			// When
-			got := limiter.IsOverLimit("premium", 1, test.depType, test.instanceCounts, test.trafficWeight)
+			got := limiter.IsOverLimit("premium", 1, test.deploymentType, test.instanceCounts, test.trafficWeight)
 
 			// Then
 			require.True(t, got)

@@ -39,7 +39,7 @@ func NewFileFetcher(path string) *FileFetcher {
 // FetchInstanceCounts returns the current primary and canary pod counts.
 func (f *FileFetcher) FetchInstanceCounts(ctx context.Context) (InstanceCounts, error) {
 	if f == nil {
-		return InstanceCounts{}, &fetchError{Err: errors.New("nil file fetcher")}
+		return InstanceCounts{}, &FetchError{Err: errors.New("nil file fetcher")}
 	}
 
 	f.mu.Lock()
@@ -59,14 +59,14 @@ func (f *FileFetcher) FetchInstanceCounts(ctx context.Context) (InstanceCounts, 
 // FetchTrafficWeight returns the current primary and canary traffic weights.
 func (f *FileFetcher) FetchTrafficWeight(ctx context.Context) (TrafficWeight, error) {
 	if f == nil {
-		return TrafficWeight{}, &fetchError{Err: errors.New("nil file fetcher")}
+		return TrafficWeight{}, &FetchError{Err: errors.New("nil file fetcher")}
 	}
 
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if f.hasCachedDeployment {
 		if err := ctx.Err(); err != nil {
-			return TrafficWeight{}, &fetchError{Err: fmt.Errorf("deployment file context: %w", err)}
+			return TrafficWeight{}, &FetchError{Err: fmt.Errorf("deployment file context: %w", err)}
 		}
 		deployment := f.cachedDeployment
 		f.cachedDeployment = deploymentFile{}
@@ -84,20 +84,20 @@ func (f *FileFetcher) FetchTrafficWeight(ctx context.Context) (TrafficWeight, er
 // FileFetcher cannot observe Kubernetes pod termination, so it never returns a TerminatingError.
 func (f *FileFetcher) fetchDeployment(ctx context.Context) (deploymentFile, error) {
 	if f == nil {
-		return deploymentFile{}, &fetchError{Err: errors.New("nil file fetcher")}
+		return deploymentFile{}, &FetchError{Err: errors.New("nil file fetcher")}
 	}
 	if err := ctx.Err(); err != nil {
-		return deploymentFile{}, &fetchError{Err: fmt.Errorf("deployment file context: %w", err)}
+		return deploymentFile{}, &FetchError{Err: fmt.Errorf("deployment file context: %w", err)}
 	}
 
 	data, err := os.ReadFile(f.path)
 	if err != nil {
-		return deploymentFile{}, &fetchError{Err: fmt.Errorf("read deployment file %q: %w", f.path, err)}
+		return deploymentFile{}, &FetchError{Err: fmt.Errorf("read deployment file %q: %w", f.path, err)}
 	}
 
 	var deployment deploymentFile
 	if err := yaml.Unmarshal(data, &deployment); err != nil {
-		return deploymentFile{}, &fetchError{Err: fmt.Errorf("parse deployment file %q: %w", f.path, err)}
+		return deploymentFile{}, &FetchError{Err: fmt.Errorf("parse deployment file %q: %w", f.path, err)}
 	}
 	return deployment, nil
 }

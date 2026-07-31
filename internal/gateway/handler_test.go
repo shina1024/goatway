@@ -17,7 +17,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"goatway/internal/config"
-	"goatway/internal/headers"
+	"goatway/internal/header"
 	"goatway/internal/proxy"
 	"goatway/internal/router"
 	"goatway/internal/targetgroup"
@@ -35,17 +35,17 @@ func TestHandler_returns_route_decision_status_when_request_is_rejected(t *testi
 		{"no route", func(_ *testing.T, _ *config.Config, request *http.Request) { request.URL.Path = "/missing" }, false, http.StatusNotFound},
 		{"missing token", func(_ *testing.T, _ *config.Config, _ *http.Request) {}, false, http.StatusUnauthorized},
 		{"unknown token", func(_ *testing.T, _ *config.Config, request *http.Request) {
-			request.Header.Set(headers.APIToken, "unknown")
+			request.Header.Set(header.APIToken, "unknown")
 		}, false, http.StatusForbidden},
 		{"client not allowed", func(_ *testing.T, _ *config.Config, request *http.Request) {
-			request.Header.Set(headers.APIToken, "staff-token")
+			request.Header.Set(header.APIToken, "staff-token")
 		}, false, http.StatusForbidden},
 		{"IP denied", func(_ *testing.T, _ *config.Config, request *http.Request) {
-			request.Header.Set(headers.APIToken, "public-token")
+			request.Header.Set(header.APIToken, "public-token")
 			request.RemoteAddr = "192.0.2.1:1234"
 		}, false, http.StatusForbidden},
 		{"invalid development request time", func(_ *testing.T, _ *config.Config, request *http.Request) {
-			request.Header.Set(headers.RequestTime, "not-rfc3339")
+			request.Header.Set(header.RequestTime, "not-rfc3339")
 		}, true, http.StatusBadRequest},
 	}
 
@@ -71,7 +71,7 @@ func TestHandler_forwards_rewritten_request_when_route_is_allowed(t *testing.T) 
 	// Given
 	upstream := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		require.Equal(t, "/catalog/42", request.URL.Path)
-		require.NotEmpty(t, request.Header.Get(headers.TraceID))
+		require.NotEmpty(t, request.Header.Get(header.TraceID))
 		writer.WriteHeader(http.StatusCreated)
 	}))
 	defer upstream.Close()
@@ -80,7 +80,7 @@ func TestHandler_forwards_rewritten_request_when_route_is_allowed(t *testing.T) 
 	cfg := testConfig(t, host, port)
 	handler := newTestHandler(t, cfg, "public: 1\n", false)
 	request := httptest.NewRequest(http.MethodGet, "/products/42", nil)
-	request.Header.Set(headers.APIToken, "public-token")
+	request.Header.Set(header.APIToken, "public-token")
 	request.RemoteAddr = "127.0.0.1:1234"
 	recorder := httptest.NewRecorder()
 
@@ -189,7 +189,7 @@ func writeFile(t *testing.T, name string, contents string) string {
 func setThrottleState(t *testing.T) *throttle.DeploymentTracker {
 	t.Helper()
 	tracker := throttle.NewDeploymentTracker()
-	require.NoError(t, tracker.SetDepType())
+	require.NoError(t, tracker.SetDeploymentType())
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	t.Cleanup(cancel)
 	updated := make(chan struct{}, 1)

@@ -92,7 +92,7 @@ func (l *Limiter) Dec(client string) {
 func (l *Limiter) IsOverLimit(
 	client string,
 	count int,
-	depType string,
+	deploymentType string,
 	instanceCounts InstanceCounts,
 	trafficWeight TrafficWeight,
 ) bool {
@@ -100,7 +100,7 @@ func (l *Limiter) IsOverLimit(
 	if !found {
 		return false
 	}
-	if depType == "" || instanceCounts.Primary+instanceCounts.Canary == 0 || trafficWeight.Primary+trafficWeight.Canary == 0 {
+	if deploymentType == "" || instanceCounts.Primary+instanceCounts.Canary == 0 || trafficWeight.Primary+trafficWeight.Canary == 0 {
 		return l.failPolicy == FailClosed
 	}
 
@@ -116,7 +116,7 @@ func (l *Limiter) IsOverLimit(
 	}
 
 	weight, instances := trafficWeight.Canary, instanceCounts.Canary
-	if depType == primaryDepType {
+	if deploymentType == primaryDeployment {
 		weight, instances = trafficWeight.Primary, instanceCounts.Primary
 	}
 	if instances == 0 {

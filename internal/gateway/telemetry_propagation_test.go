@@ -10,7 +10,7 @@ import (
 	"go.opentelemetry.io/otel/propagation"
 	"go.opentelemetry.io/otel/trace"
 
-	"goatway/internal/headers"
+	"goatway/internal/header"
 )
 
 func TestHandler_continues_sampled_traceparent_and_ignores_client_trace_id(t *testing.T) {
@@ -26,7 +26,7 @@ func TestHandler_continues_sampled_traceparent_and_ignores_client_trace_id(t *te
 	host, port := targetAddress(t, upstream.URL)
 	handler := newTestHandler(t, testConfig(t, host, port), "public: 1\n", false)
 	request := gatewayRequest()
-	request.Header.Set(headers.TraceID, "client-spoof")
+	request.Header.Set(header.TraceID, "client-spoof")
 	request.Header.Set("traceparent", "00-"+traceID+"-"+parentSpanID+"-01")
 	request.Header.Set("tracestate", "vendor=client")
 	recorder := httptest.NewRecorder()
@@ -39,7 +39,7 @@ func TestHandler_continues_sampled_traceparent_and_ignores_client_trace_id(t *te
 	propagatedContext := propagation.TraceContext{}.Extract(context.Background(), propagation.HeaderCarrier(propagatedHeaders))
 	propagatedSpanContext := trace.SpanContextFromContext(propagatedContext)
 	require.Equal(t, http.StatusNoContent, recorder.Code)
-	require.Equal(t, traceID, recorder.Header().Get(headers.TraceID))
+	require.Equal(t, traceID, recorder.Header().Get(header.TraceID))
 	require.True(t, propagatedSpanContext.IsValid())
 	require.Equal(t, traceID, propagatedSpanContext.TraceID().String())
 	require.NotEqual(t, parentSpanID, propagatedSpanContext.SpanID().String())
@@ -68,7 +68,7 @@ func TestHandler_continues_unsampled_traceparent(t *testing.T) {
 	// Then
 	propagatedContext := propagation.TraceContext{}.Extract(context.Background(), propagation.HeaderCarrier(<-upstreamHeaders))
 	propagatedSpanContext := trace.SpanContextFromContext(propagatedContext)
-	require.Equal(t, traceID, recorder.Header().Get(headers.TraceID))
+	require.Equal(t, traceID, recorder.Header().Get(header.TraceID))
 	require.Equal(t, traceID, propagatedSpanContext.TraceID().String())
 	require.False(t, propagatedSpanContext.TraceFlags().IsSampled())
 }
@@ -84,7 +84,7 @@ func TestHandler_creates_trace_for_invalid_traceparent(t *testing.T) {
 	host, port := targetAddress(t, upstream.URL)
 	handler := newTestHandler(t, testConfig(t, host, port), "public: 1\n", false)
 	request := gatewayRequest()
-	request.Header.Set(headers.TraceID, "client-spoof")
+	request.Header.Set(header.TraceID, "client-spoof")
 	request.Header.Set("traceparent", "00-00000000000000000000000000000000-0000000000000000-01")
 	recorder := httptest.NewRecorder()
 
@@ -95,6 +95,6 @@ func TestHandler_creates_trace_for_invalid_traceparent(t *testing.T) {
 	propagatedContext := propagation.TraceContext{}.Extract(context.Background(), propagation.HeaderCarrier(<-upstreamHeaders))
 	propagatedSpanContext := trace.SpanContextFromContext(propagatedContext)
 	require.True(t, propagatedSpanContext.IsValid())
-	require.NotEqual(t, "client-spoof", recorder.Header().Get(headers.TraceID))
-	require.Equal(t, propagatedSpanContext.TraceID().String(), recorder.Header().Get(headers.TraceID))
+	require.NotEqual(t, "client-spoof", recorder.Header().Get(header.TraceID))
+	require.Equal(t, propagatedSpanContext.TraceID().String(), recorder.Header().Get(header.TraceID))
 }

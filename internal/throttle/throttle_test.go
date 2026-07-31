@@ -9,12 +9,12 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func Test_DetectDepType_returns_canary_when_hostname_contains_canary(t *testing.T) {
+func Test_DetectDeploymentType_returns_canary_when_hostname_contains_canary(t *testing.T) {
 	// Given
 	hostname := "api-gateway-canary-x"
 
 	// When
-	got := DetectDepType(hostname)
+	got := DetectDeploymentType(hostname)
 
 	// Then
 	require.Equal(t, "canary", got)

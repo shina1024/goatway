@@ -123,7 +123,7 @@ func run(ctx context.Context, settings runSettings, dependencies runDependencies
 		breakerConfig := configuration.Gateway.CircuitBreaker
 		circuitBreakers = circuitbreaker.NewRegistry(groupIDs, circuitbreaker.Config{
 			FailureThreshold:    breakerConfig.FailureThreshold,
-			OpenInterval:        time.Duration(breakerConfig.OpenIntervalMS) * time.Millisecond,
+			OpenInterval:        time.Duration(breakerConfig.OpenIntervalMs) * time.Millisecond,
 			HalfOpenMaxRequests: breakerConfig.HalfOpenMaxRequests,
 		})
 	}
@@ -140,7 +140,7 @@ func run(ctx context.Context, settings runSettings, dependencies runDependencies
 		throttle.WithFailPolicy(throttle.FailPolicy(configuration.Gateway.Throttle.FailPolicy)),
 	)
 	tracker := throttle.NewDeploymentTracker(throttle.WithLogger(settings.logger))
-	if err := tracker.SetDepType(); err != nil {
+	if err := tracker.SetDeploymentType(); err != nil {
 		return fmt.Errorf("detect deployment type: %w", err)
 	}
 	fetcher := dependencies.newFileFetcher(filepath.Join(settings.configDir, "deployment.yml"))

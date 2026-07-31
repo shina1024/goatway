@@ -13,7 +13,7 @@ const (
 	defaultRetryMaxInterval                     = 10 * defaultRetryBaseInterval
 	defaultMaxResponseBodySizeBytes       int64 = 10485760
 	defaultCircuitBreakerFailureThreshold       = 5
-	defaultCircuitBreakerOpenIntervalMS         = 30000
+	defaultCircuitBreakerOpenIntervalMs         = 30000
 	defaultCircuitBreakerHalfOpenMax            = 1
 )
 
@@ -70,8 +70,8 @@ func (gateway GatewayConfig) withDefaults() GatewayConfig {
 	if gateway.CircuitBreaker.FailureThreshold == 0 {
 		gateway.CircuitBreaker.FailureThreshold = defaultCircuitBreakerFailureThreshold
 	}
-	if gateway.CircuitBreaker.OpenIntervalMS == 0 {
-		gateway.CircuitBreaker.OpenIntervalMS = defaultCircuitBreakerOpenIntervalMS
+	if gateway.CircuitBreaker.OpenIntervalMs == 0 {
+		gateway.CircuitBreaker.OpenIntervalMs = defaultCircuitBreakerOpenIntervalMs
 	}
 	if gateway.CircuitBreaker.HalfOpenMaxRequests == 0 {
 		gateway.CircuitBreaker.HalfOpenMaxRequests = defaultCircuitBreakerHalfOpenMax

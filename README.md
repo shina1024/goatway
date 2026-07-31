@@ -338,8 +338,13 @@ On Windows, `-race` requires a GCC-compatible compiler and may not be available 
 │   ├── max_concurrent_requests.yml
 │   └── deployment.yml
 ├── internal/
+│   ├── circuitbreaker/          # Per-target-group circuit breaker
 │   ├── config/                  # Configuration loading & validation
+│   ├── e2e/                     # End-to-end tests
 │   ├── gateway/                 # Top-level HTTP handler
+│   ├── header/                  # Custom gateway header name constants
+│   ├── health/                  # Liveness and readiness endpoints
+│   ├── httperr/                 # JSON error envelope writer
 │   ├── logging/                 # slog wrapper
 │   ├── proxy/                   # Upstream forwarding & retry
 │   ├── router/                  # Routing, auth, IP restrictions

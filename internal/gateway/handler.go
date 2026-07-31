@@ -7,7 +7,7 @@ import (
 	"time"
 
 	"goatway/internal/config"
-	"goatway/internal/headers"
+	"goatway/internal/header"
 	"goatway/internal/httperr"
 	"goatway/internal/proxy"
 	"goatway/internal/router"
@@ -111,7 +111,7 @@ func (handler *Handler) ServeHTTP(writer http.ResponseWriter, request *http.Requ
 	}()
 	writer = metricsWriter
 
-	writer.Header().Set(headers.TraceID, telemetry.TraceID(request.Context()))
+	writer.Header().Set(header.TraceID, telemetry.TraceID(request.Context()))
 	originalRequest := request
 	request, err := router.WithRequestTimeOverride(request, handler.devMode)
 	if err != nil {
@@ -141,8 +141,8 @@ func (handler *Handler) ServeHTTP(writer http.ResponseWriter, request *http.Requ
 		deploymentState := handler.tracker.GetDeploymentState()
 		instanceCounts := deploymentState.InstanceCounts
 		trafficWeight := deploymentState.TrafficWeight
-		depType := handler.tracker.GetDepType()
-		if handler.limiter.IsOverLimit(client, count, depType, instanceCounts, trafficWeight) {
+		deploymentType := handler.tracker.DeploymentType()
+		if handler.limiter.IsOverLimit(client, count, deploymentType, instanceCounts, trafficWeight) {
 			handler.recordThrottleRejection(request.Context(), client)
 			handler.logger.WarnContext(
 				request.Context(), "gateway throttle rejected",
@@ -150,7 +150,7 @@ func (handler *Handler) ServeHTTP(writer http.ResponseWriter, request *http.Requ
 				slog.String("client", client),
 				slog.Int("count", count),
 				slog.Int("maximum", handler.configuration.MaxConcurrentRequests[config.ClientType(client)]),
-				slog.String("deployment_type", depType),
+				slog.String("deployment_type", deploymentType),
 				slog.Int("primary_instances", instanceCounts.Primary),
 				slog.Int("canary_instances", instanceCounts.Canary),
 				slog.Int("primary_weight", trafficWeight.Primary),

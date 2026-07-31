@@ -10,7 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"goatway/internal/config"
-	"goatway/internal/headers"
+	"goatway/internal/header"
 	"goatway/internal/router"
 )
 
@@ -59,7 +59,7 @@ func Test_externalTokenSources_load_and_authenticate(t *testing.T) {
 
 			request := httptest.NewRequest(http.MethodGet, "/items/42", nil)
 			request.RemoteAddr = "127.0.0.1:12345"
-			request.Header.Set(headers.APIToken, test.token)
+			request.Header.Set(header.APIToken, test.token)
 			match, err := gatewayRouter.Route(request)
 
 			// Then
@@ -67,7 +67,7 @@ func Test_externalTokenSources_load_and_authenticate(t *testing.T) {
 			require.Equal(t, router.ClientType("public"), match.ClientType)
 			defaultRequest := httptest.NewRequest(http.MethodGet, "/items/42", nil)
 			defaultRequest.RemoteAddr = "127.0.0.1:12345"
-			defaultRequest.Header.Set(headers.APIToken, "token")
+			defaultRequest.Header.Set(header.APIToken, "token")
 			_, err = gatewayRouter.Route(defaultRequest)
 			require.ErrorIs(t, err, router.ErrUnknownToken)
 		})

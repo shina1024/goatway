@@ -8,7 +8,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"goatway/internal/headers"
+	"goatway/internal/header"
 	"goatway/internal/httperr"
 )
 
@@ -36,7 +36,7 @@ func TestHandler_returnsJSONErrorEnvelope_for_gatewayErrors(t *testing.T) {
 			request := httptest.NewRequest(http.MethodGet, test.path, nil)
 			request.RemoteAddr = "127.0.0.1:1234"
 			if test.token != "" {
-				request.Header.Set(headers.APIToken, test.token)
+				request.Header.Set(header.APIToken, test.token)
 			}
 
 			response := httptest.NewRecorder()

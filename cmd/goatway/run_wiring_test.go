@@ -16,7 +16,7 @@ import (
 	"go.opentelemetry.io/otel/sdk/trace/tracetest"
 	"go.opentelemetry.io/otel/trace"
 
-	"goatway/internal/headers"
+	"goatway/internal/header"
 )
 
 func Test_run_wires_health_and_readiness_endpoints(t *testing.T) {
@@ -77,7 +77,7 @@ func Test_run_wires_explicit_telemetry_through_gateway(t *testing.T) {
 		listen: func() error {
 			request := httptest.NewRequest(http.MethodGet, "/items/42", nil)
 			request.RemoteAddr = "127.0.0.1:12345"
-			request.Header.Set(headers.APIToken, "token")
+			request.Header.Set(header.APIToken, "token")
 			response := httptest.NewRecorder()
 			serverHandler.ServeHTTP(response, request)
 			if response.Code != http.StatusNoContent {

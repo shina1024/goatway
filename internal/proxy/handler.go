@@ -14,7 +14,7 @@ import (
 	"time"
 
 	"goatway/internal/circuitbreaker"
-	"goatway/internal/headers"
+	"goatway/internal/header"
 	"goatway/internal/router"
 	"goatway/internal/targetgroup"
 	"goatway/internal/telemetry"
@@ -184,7 +184,7 @@ func (handler *Handler) ForwardBuffered(writer http.ResponseWriter, request *htt
 	}
 	outbound.Header = filteredRequestHeaders(request.Header)
 	(&httputil.ProxyRequest{In: request, Out: outbound}).SetXForwarded()
-	outbound.Header.Set(headers.TraceID, telemetry.TraceID(request.Context()))
+	outbound.Header.Set(header.TraceID, telemetry.TraceID(request.Context()))
 	outbound.ContentLength = int64(len(attempt.Body.contents))
 	response, err := handler.ClientFor(input.Target, input.Group.MaxIdleConnsPerHost()).Do(outbound) //nolint:gosec // target is validated gateway configuration, not request-controlled input
 	if err != nil {

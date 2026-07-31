@@ -20,7 +20,7 @@ import (
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 
 	"goatway/internal/config"
-	"goatway/internal/headers"
+	"goatway/internal/header"
 	"goatway/internal/router"
 	"goatway/internal/targetgroup"
 )
@@ -37,8 +37,8 @@ func TestHandler_Forward_forwards_rewritten_request_and_copies_response(t *testi
 		body, err := io.ReadAll(request.Body)
 		require.NoError(t, err)
 		gotPath, gotQuery = request.URL.Path, request.URL.RawQuery
-		gotHeader, gotTrace, gotBody = request.Header.Get("X-Client-Header"), request.Header.Get(headers.TraceID), string(body)
-		gotToken <- request.Header.Get(headers.APIToken)
+		gotHeader, gotTrace, gotBody = request.Header.Get("X-Client-Header"), request.Header.Get(header.TraceID), string(body)
+		gotToken <- request.Header.Get(header.APIToken)
 		require.Empty(t, request.Header.Get("X-Hop"))
 		writer.Header().Set("X-Upstream-Header", "copied")
 		writer.Header().Set("Connection", "X-Upstream-Hop")
@@ -51,7 +51,7 @@ func TestHandler_Forward_forwards_rewritten_request_and_copies_response(t *testi
 	group, target := testTarget(t, backend.URL, 100*time.Millisecond)
 	request := httptest.NewRequest(http.MethodPost, "/incoming?keep=this", strings.NewReader("request body")).WithContext(requestContext)
 	request.Header.Set("X-Client-Header", "forwarded")
-	request.Header.Set(headers.APIToken, "secret-token")
+	request.Header.Set(header.APIToken, "secret-token")
 	request.Header.Set("Connection", "X-Hop")
 	request.Header.Set("X-Hop", "removed")
 	recorder := httptest.NewRecorder()
@@ -219,7 +219,7 @@ func TestHandler_Forward_strips_sensitive_headers_from_upstream_request(t *testi
 	backend := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		gotAuth <- request.Header.Get("Authorization")
 		gotCookie <- request.Header.Get("Cookie")
-		gotRequestTime <- request.Header.Get(headers.RequestTime)
+		gotRequestTime <- request.Header.Get(header.RequestTime)
 		writer.WriteHeader(http.StatusOK)
 	}))
 	defer backend.Close()
@@ -227,7 +227,7 @@ func TestHandler_Forward_strips_sensitive_headers_from_upstream_request(t *testi
 	request := httptest.NewRequest(http.MethodGet, "/", nil)
 	request.Header.Set("Authorization", "Bearer secret-jwt")
 	request.Header.Set("Cookie", "session=abc123")
-	request.Header.Set(headers.RequestTime, "2026-01-01T00:00:00Z")
+	request.Header.Set(header.RequestTime, "2026-01-01T00:00:00Z")
 	request.Header.Set("X-Safe-Header", "forwarded")
 
 	_, err := NewHandler().Forward(httptest.NewRecorder(), request, ForwardInput{
