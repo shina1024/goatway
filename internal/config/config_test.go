@@ -96,7 +96,7 @@ func Test_Config_Load_uses_gateway_default_when_file_is_absent(t *testing.T) {
 	// Then
 	require.NoError(t, err)
 	require.Equal(t, int64(10485760), config.Gateway.Proxy.MaxResponseBodySizeBytes)
-	require.Equal(t, "fail_open", config.Gateway.Throttle.FailPolicy)
+	require.Equal(t, FailOpen, config.Gateway.Throttle.FailPolicy)
 	require.False(t, config.Gateway.CircuitBreaker.Enabled)
 	require.Equal(t, 5, config.Gateway.CircuitBreaker.FailureThreshold)
 	require.Equal(t, 30000, config.Gateway.CircuitBreaker.OpenIntervalMs)
@@ -161,7 +161,7 @@ func Test_Config_Load_defaults_empty_gateway_fail_policy_to_fail_open(t *testing
 
 	// Then
 	require.NoError(t, err)
-	require.Equal(t, "fail_open", config.Gateway.Throttle.FailPolicy)
+	require.Equal(t, FailOpen, config.Gateway.Throttle.FailPolicy)
 }
 
 func Test_Config_Load_reads_fail_closed_gateway_policy(t *testing.T) {
@@ -174,7 +174,7 @@ func Test_Config_Load_reads_fail_closed_gateway_policy(t *testing.T) {
 
 	// Then
 	require.NoError(t, err)
-	require.Equal(t, "fail_closed", config.Gateway.Throttle.FailPolicy)
+	require.Equal(t, FailClosed, config.Gateway.Throttle.FailPolicy)
 }
 
 func Test_TargetGroupConfig_resolves_zero_values_to_defaults(t *testing.T) {

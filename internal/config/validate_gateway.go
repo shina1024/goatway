@@ -3,8 +3,6 @@ package config
 import (
 	"net"
 	"strconv"
-
-	"goatway/internal/throttle"
 )
 
 func (config Config) validateGateway() error {
@@ -15,8 +13,8 @@ func (config Config) validateGateway() error {
 	if gateway.Proxy.MaxResponseBodySizeBytes <= 0 {
 		return invalid("gateway.yml", "proxy.max_response_body_size_bytes", "positive max response body size", strconv.FormatInt(gateway.Proxy.MaxResponseBodySizeBytes, 10))
 	}
-	if gateway.Throttle.FailPolicy != string(throttle.FailOpen) && gateway.Throttle.FailPolicy != string(throttle.FailClosed) {
-		return invalid("gateway.yml", "throttle.fail_policy", "fail policy must be fail_open or fail_closed", gateway.Throttle.FailPolicy)
+	if gateway.Throttle.FailPolicy != FailOpen && gateway.Throttle.FailPolicy != FailClosed {
+		return invalid("gateway.yml", "throttle.fail_policy", "fail policy must be fail_open or fail_closed", string(gateway.Throttle.FailPolicy))
 	}
 	if gateway.CircuitBreaker.FailureThreshold < 0 {
 		return invalid("gateway.yml", "circuit_breaker.failure_threshold", "non-negative failure threshold", strconv.Itoa(gateway.CircuitBreaker.FailureThreshold))

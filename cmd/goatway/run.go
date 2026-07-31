@@ -137,7 +137,7 @@ func run(ctx context.Context, settings runSettings, dependencies runDependencies
 	}
 	limiter := throttle.NewLimiterFromLimits(
 		limits,
-		throttle.WithFailPolicy(throttle.FailPolicy(configuration.Gateway.Throttle.FailPolicy)),
+		throttle.WithFailPolicy(configuration.Gateway.Throttle.FailPolicy),
 	)
 	tracker := throttle.NewDeploymentTracker(throttle.WithLogger(settings.logger))
 	if err := tracker.SetDeploymentType(); err != nil {

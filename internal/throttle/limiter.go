@@ -5,6 +5,7 @@ import (
 	"os"
 	"sync"
 
+	"goatway/internal/config"
 	"gopkg.in/yaml.v3"
 )
 
@@ -14,14 +15,14 @@ type Limiter struct {
 	clientCount      map[string]int
 	maxConcurrentMu  sync.RWMutex
 	maxConcurrentMap map[string]int
-	failPolicy       FailPolicy
+	failPolicy       config.FailPolicy
 }
 
 // LimiterOption configures a limiter.
 type LimiterOption func(*Limiter)
 
 // WithFailPolicy configures the decision used for degraded deployment state.
-func WithFailPolicy(policy FailPolicy) LimiterOption {
+func WithFailPolicy(policy config.FailPolicy) LimiterOption {
 	return func(limiter *Limiter) {
 		limiter.failPolicy = policy
 	}
@@ -48,7 +49,7 @@ func NewLimiterFromLimits(limits map[string]int, options ...LimiterOption) *Limi
 	limiter := &Limiter{
 		clientCount:      make(map[string]int),
 		maxConcurrentMap: limits,
-		failPolicy:       FailOpen,
+		failPolicy:       config.FailOpen,
 	}
 	for _, option := range options {
 		if option != nil {
@@ -101,12 +102,12 @@ func (l *Limiter) IsOverLimit(
 		return false
 	}
 	if deploymentType == "" || instanceCounts.Primary+instanceCounts.Canary == 0 || trafficWeight.Primary+trafficWeight.Canary == 0 {
-		return l.failPolicy == FailClosed
+		return l.failPolicy == config.FailClosed
 	}
 
 	if trafficWeight.Canary == 0 {
 		if instanceCounts.Primary == 0 {
-			return l.failPolicy == FailClosed
+			return l.failPolicy == config.FailClosed
 		}
 		threshold := int(int64(maximum) / int64(instanceCounts.Primary))
 		if threshold == 0 {
@@ -120,7 +121,7 @@ func (l *Limiter) IsOverLimit(
 		weight, instances = trafficWeight.Primary, instanceCounts.Primary
 	}
 	if instances == 0 {
-		return l.failPolicy == FailClosed
+		return l.failPolicy == config.FailClosed
 	}
 	threshold := int(int64(maximum) * int64(weight) / 100 / int64(instances))
 	if threshold == 0 {

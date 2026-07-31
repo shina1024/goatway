@@ -2,8 +2,6 @@ package config
 
 import (
 	"time"
-
-	"goatway/internal/throttle"
 )
 
 const (
@@ -65,7 +63,7 @@ func (gateway GatewayConfig) withDefaults() GatewayConfig {
 		gateway.Proxy.MaxResponseBodySizeBytes = defaultMaxResponseBodySizeBytes
 	}
 	if gateway.Throttle.FailPolicy == "" {
-		gateway.Throttle.FailPolicy = string(throttle.FailOpen)
+		gateway.Throttle.FailPolicy = FailOpen
 	}
 	if gateway.CircuitBreaker.FailureThreshold == 0 {
 		gateway.CircuitBreaker.FailureThreshold = defaultCircuitBreakerFailureThreshold

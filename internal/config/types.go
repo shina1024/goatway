@@ -12,6 +12,14 @@ type Milliseconds int
 
 type Weight int
 
+// FailPolicy controls decisions when deployment state cannot produce a threshold.
+type FailPolicy string
+
+const (
+	FailOpen   FailPolicy = "fail_open"
+	FailClosed FailPolicy = "fail_closed"
+)
+
 type Config struct {
 	TargetGroups          map[TargetGroupID]TargetGroupConfig
 	Routes                []RouteConfig
@@ -95,7 +103,7 @@ type ProxyConfig struct {
 }
 
 type ThrottleConfig struct {
-	FailPolicy string `yaml:"fail_policy"`
+	FailPolicy FailPolicy `yaml:"fail_policy"`
 }
 
 type CircuitBreakerConfig struct {

@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+	"goatway/internal/config"
 )
 
 func Test_IsOverLimit_returns_article_threshold_decisions(t *testing.T) {
@@ -166,7 +167,7 @@ func Test_IsOverLimit_returns_article_threshold_decisions(t *testing.T) {
 
 func Test_IsOverLimit_rejects_degraded_state_when_fail_closed(t *testing.T) {
 	// Given
-	limiter := NewLimiterFromLimits(map[string]int{"premium": 100}, WithFailPolicy(FailClosed))
+	limiter := NewLimiterFromLimits(map[string]int{"premium": 100}, WithFailPolicy(config.FailClosed))
 
 	// When
 	got := limiter.IsOverLimit("premium", 1, "", InstanceCounts{}, TrafficWeight{})
@@ -203,7 +204,7 @@ func Test_IsOverLimit_fail_closed_rejects_every_degraded_state(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			// Given
-			limiter := NewLimiterFromLimits(map[string]int{"premium": 100}, WithFailPolicy(FailClosed))
+			limiter := NewLimiterFromLimits(map[string]int{"premium": 100}, WithFailPolicy(config.FailClosed))
 
 			// When
 			got := limiter.IsOverLimit("premium", 1, test.deploymentType, test.instanceCounts, test.trafficWeight)
@@ -227,7 +228,7 @@ func Test_IsOverLimit_fail_closed_preserves_healthy_threshold_decisions(t *testi
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			// Given
-			limiter := NewLimiterFromLimits(map[string]int{"premium": 100}, WithFailPolicy(FailClosed))
+			limiter := NewLimiterFromLimits(map[string]int{"premium": 100}, WithFailPolicy(config.FailClosed))
 
 			// When
 			got := limiter.IsOverLimit("premium", test.count, "primary", InstanceCounts{Primary: 1}, TrafficWeight{Primary: 100})
@@ -240,7 +241,7 @@ func Test_IsOverLimit_fail_closed_preserves_healthy_threshold_decisions(t *testi
 
 func Test_IsOverLimit_does_not_apply_fail_closed_without_configured_limit(t *testing.T) {
 	// Given
-	limiter := NewLimiterFromLimits(map[string]int{"premium": 100}, WithFailPolicy(FailClosed))
+	limiter := NewLimiterFromLimits(map[string]int{"premium": 100}, WithFailPolicy(config.FailClosed))
 
 	// When
 	got := limiter.IsOverLimit("unknown", 1000, "", InstanceCounts{}, TrafficWeight{})
