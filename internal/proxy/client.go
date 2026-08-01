@@ -78,6 +78,9 @@ func (cache *clientCache) get(target targetgroup.Target, maxIdleConnsPerHost int
 	}
 	client := &http.Client{
 		Timeout: key.readTimeout,
+		CheckRedirect: func(_ *http.Request, _ []*http.Request) error {
+			return http.ErrUseLastResponse
+		},
 		Transport: otelhttp.NewTransport(
 			baseTransport,
 			otelhttp.WithTracerProvider(cache.telemetry.provider),

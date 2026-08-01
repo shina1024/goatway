@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -15,6 +16,36 @@ import (
 	"goatway/internal/header"
 	"goatway/internal/router"
 )
+
+func TestHandler_Forward_does_not_follow_upstream_redirect_to_another_host(t *testing.T) {
+	// Given
+	var destinationCalls atomic.Int64
+	destination := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+		destinationCalls.Add(1)
+		writer.WriteHeader(http.StatusOK)
+	}))
+	defer destination.Close()
+	redirect := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+		writer.Header().Set("Location", destination.URL+"/private")
+		writer.WriteHeader(http.StatusFound)
+	}))
+	defer redirect.Close()
+	group, target := testTarget(t, redirect.URL, time.Second)
+	recorder := httptest.NewRecorder()
+
+	// When
+	_, err := NewHandler().Forward(recorder, httptest.NewRequest(http.MethodGet, "/", nil), ForwardInput{
+		Target: target,
+		Group:  group,
+		Match:  router.Match{RoutedPathMap: map[string]string{"api": "/"}},
+	})
+
+	// Then
+	require.NoError(t, err)
+	require.Equal(t, http.StatusFound, recorder.Code)
+	require.Equal(t, destination.URL+"/private", recorder.Header().Get("Location"))
+	require.Zero(t, destinationCalls.Load())
+}
 
 func TestHandler_Forward_removes_client_cookies_and_upstream_set_cookies(t *testing.T) {
 	// Given
