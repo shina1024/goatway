@@ -101,7 +101,7 @@ func runtimeResource(ctx context.Context) (*resource.Resource, error) {
 		return nil, fmt.Errorf("read OpenTelemetry resource environment: %w", err)
 	}
 	res, err := resource.Merge(
-		resource.NewWithAttributes(semconv.SchemaURL, semconv.ServiceName("goatway")),
+		resource.NewSchemaless(semconv.ServiceName("goatway")),
 		environment,
 	)
 	if err != nil {
